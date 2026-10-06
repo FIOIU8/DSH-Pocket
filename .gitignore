@@ -1,0 +1,28 @@
+*.iml
+.gradle
+/local.properties
+/.idea/
+.DS_Store
+/build
+/docs/
+/android-node-agent-feasibility-2026.md
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+
+# Runtime collection work area (Termux closure, npm bundle, built zips) - GBs
+/.runtime-work/
+# Gradle user home mirrored into the workspace (the DSH sandbox cannot write
+# outside it); ~1.6 GB of caches that must never be committed.
+/.gradle-home/
+# Kotlin Gradle plugin local state
+/.kotlin/
+# Python bytecode from tools/
+__pycache__/
+# The collected runtime is built by tools/collect_runtime.py and staged here for
+# packaging; it is ~120 MB and must never be committed.
+/app/src/main/assets/*.zip
+# Local debug signing key: AGP's public debug credentials, kept inside the project
+# because the build sandbox cannot write ~/.android.
+/.keystore/

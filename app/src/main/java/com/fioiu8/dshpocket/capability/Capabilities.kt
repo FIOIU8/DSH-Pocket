@@ -1,0 +1,88 @@
+package com.fioiu8.dshpocket.capability
+
+import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Build
+import android.os.Environment
+import android.provider.Settings
+
+/**
+ * The capability ladder from D12.
+ *
+ * The bundled engine runs with the app's own privileges, so what the agent can reach is
+ * exactly what this app has been granted. Each rung is therefore something the *user*
+ * grants, and the UI must be able to explain and request it.
+ */
+enum class CapabilityState {
+    /** Available right now. */
+    GRANTED,
+
+    /** Installable / grantable, but not granted yet. */
+    AVAILABLE,
+
+    /** The companion APK is present, but its execution bridge is not connected yet. */
+    INSTALLED,
+
+    /** The user must install something else first (Termux, Shizuku). */
+    NOT_INSTALLED,
+
+    /** Not applicable on this device or Android version. */
+    UNSUPPORTED,
+}
+
+object Capabilities {
+
+    const val TERMUX_PACKAGE = "com.termux"
+    const val SHIZUKU_PACKAGE = "moe.shizuku.privileged.api"
+
+    /**
+     * "All files access" — the rung that makes the default tier actually useful.
+     *
+     * SAF is not an option here: it hands out `content://` URIs, which Node's `fs`
+     * cannot open. Only real paths work, and on Android 11+ that means
+     * MANAGE_EXTERNAL_STORAGE.
+     */
+    fun allFilesAccess(context: Context): CapabilityState =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            if (Environment.isExternalStorageManager()) {
+                CapabilityState.GRANTED
+            } else {
+                CapabilityState.AVAILABLE
+            }
+        } else {
+            // Pre-R the legacy model applies and normal runtime permissions suffice.
+            CapabilityState.GRANTED
+        }
+
+    /** Settings screen that grants all-files access to this app, or null when not applicable. */
+    fun allFilesAccessIntent(context: Context): Intent? =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            Intent(
+                Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                Uri.fromParts("package", context.packageName, null),
+            )
+        } else {
+            null
+        }
+
+    fun isInstalled(context: Context, packageName: String): Boolean = try {
+        context.packageManager.getPackageInfo(packageName, 0)
+        true
+    } catch (_: PackageManager.NameNotFoundException) {
+        false
+    }
+
+    /** Termux supplies a full Linux userland (and a second, unmodified path to dsh). */
+    fun termux(context: Context): CapabilityState =
+        if (isInstalled(context, TERMUX_PACKAGE)) CapabilityState.INSTALLED else CapabilityState.NOT_INSTALLED
+
+    /**
+     * Shizuku supplies privilege, not a runtime: it can only raise the identity of the
+     * processes we already ship. Merely detecting the APK is all we can do without
+     * binding to its service, which is the next step (D11).
+     */
+    fun shizuku(context: Context): CapabilityState =
+        if (isInstalled(context, SHIZUKU_PACKAGE)) CapabilityState.INSTALLED else CapabilityState.NOT_INSTALLED
+}
