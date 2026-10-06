@@ -1,5 +1,6 @@
 package com.fioiu8.dshpocket.ui
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -8,11 +9,23 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Extension
+import androidx.compose.material.icons.filled.Forum
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Memory
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -25,92 +38,217 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.fioiu8.dshpocket.capability.CapabilityState
+import com.fioiu8.dshpocket.engine.EngineApi
 import com.fioiu8.dshpocket.engine.EnginePaths
 import com.fioiu8.dshpocket.engine.EngineState
+import com.fioiu8.dshpocket.engine.RuntimeInstaller
 import kotlinx.coroutines.delay
+import org.json.JSONObject
 
 /**
- * Adapted from the 首页 frame of `docs/ui-md3.json`.
- *
- * The reference frame's "最新会话" card and its workspace grouping need the session
- * protocol, which is not wired yet; what the card shows here is the thing we *do* know
- * the truth about — the bundled engine and what it is allowed to touch.
+ * 首页（m3e-canvas.json 的 home 帧）：最新会话卡、快捷入口、本地核心运行状态。
+ * 能力档位卡移至设置页；重启入口收进「本地核心」卡。
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
     state: EngineState,
-    log: List<String>,
-    capabilities: CapabilitySnapshot,
     onOpenChat: () -> Unit,
-    onOpenSettings: () -> Unit,
-    onGrantAllFiles: () -> Unit,
+    onOpenSessions: () -> Unit,
+    onOpenPlugins: () -> Unit,
+    onOpenModels: () -> Unit,
+    onMenu: () -> Unit,
     onRestart: () -> Unit,
 ) {
-    var showLog by remember { mutableStateOf(false) }
-    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(Unit) {
-        while (true) {
-            delay(1_000)
-            now = System.currentTimeMillis()
-        }
-    }
-
-    Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        EngineCard(state, now, onOpenChat, onRestart)
-
-        SectionHeader("快捷入口")
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            QuickEntry("进入对话", "原生外壳里的官方界面", Modifier.weight(1f), onOpenChat)
-            QuickEntry("能力与权限", "决定 agent 够得着什么", Modifier.weight(1f), onOpenSettings)
-        }
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            QuickEntry("重启引擎", "插件或配置改动后", Modifier.weight(1f), onRestart)
-            QuickEntry("引擎日志", if (showLog) "点击收起" else "点击展开", Modifier.weight(1f)) {
-                showLog = !showLog
+    Scaffold(
+        topBar = {
+            DshTopAppBar(
+                title = "DSH Pocket",
+                onMenu = onMenu,
+                subtitle = subtitleFor(state),
+            )
+        },
+    ) { padding ->
+        var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+        LaunchedEffect(Unit) {
+            while (true) {
+                delay(1_000)
+                now = System.currentTimeMillis()
             }
         }
 
-        SectionHeader("能力档位")
-        CapabilityCard(capabilities, onGrantAllFiles)
+        Column(
+            Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            LatestSessionSection(state, onOpenChat)
 
-        if (showLog) {
-            SectionHeader("引擎输出")
-            LogPanel(log, Modifier.fillMaxWidth())
+            SectionHeader("快捷入口")
+            QuickEntryList(onOpenChat, onOpenSessions, onOpenPlugins, onOpenModels)
+
+            SectionHeader("运行状态")
+            CoreStatusCard(state, now, onRestart)
+
+            HorizontalDivider(Modifier.padding(vertical = 12.dp))
+            Text(
+                text = "引擎与会话全部留在本机；数据是否离开设备，取决于你配置的模型服务地址。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp),
+            )
         }
+    }
+}
 
-        HorizontalDivider(Modifier.padding(vertical = 12.dp))
-        Text(
-            text = "引擎与会话全部留在本机；数据是否离开设备，取决于你配置的模型服务地址。",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 16.dp),
+private fun subtitleFor(state: EngineState): String = when (state) {
+    is EngineState.Ready -> "本地运行 · 已连接"
+    is EngineState.Busy -> "正在启动 · ${state.message}"
+    is EngineState.Failed -> "引擎异常"
+    EngineState.Idle -> "引擎未启动"
+}
+
+/** 首页顶部的「最新会话」filled 卡（canvas home_latest）+「继续查看」tonal 按钮。 */
+@Composable
+private fun LatestSessionSection(state: EngineState, onOpenChat: () -> Unit) {
+    var latest by remember { mutableStateOf<LatestSession?>(null) }
+
+    LaunchedEffect(state) {
+        val ready = state as? EngineState.Ready ?: return@LaunchedEffect
+        val result = EngineApi.rpc(
+            ready.baseUrl,
+            "session/list",
+            EngineApi.emptyArgs().put("_request", JSONObject()),
+            ready.token,
         )
+        if (result is EngineApi.RpcResult.Ok) {
+            latest = EngineApi.itemsOf(result.value)
+                .let { items ->
+                    buildList {
+                        for (i in 0 until items.length()) {
+                            val item = items.optJSONObject(i) ?: continue
+                            if (item.optBoolean("blank")) continue
+                            val values = item.optJSONObject("projections")?.optJSONObject("values")
+                            val title = values?.optString("title")
+                                ?.takeIf { it.isNotBlank() && it != "null" }
+                                ?: "（无标题会话）"
+                            add(
+                                LatestSession(
+                                    title = title,
+                                    running = item.optBoolean("running"),
+                                    turns = values?.optJSONArray("turnOutline")?.length() ?: 0,
+                                ),
+                            )
+                        }
+                    }
+                }
+                .firstOrNull() // session/list 已按最近更新排序
+        }
+    }
+
+    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+        val session = latest
+        Card(
+            onClick = onOpenChat,
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(),
+        ) {
+            Row(
+                Modifier.padding(16.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Icon(
+                    Icons.Filled.History,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+                Column {
+                    Text(
+                        session?.title ?: "还没有会话",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        session?.let {
+                            listOfNotNull(
+                                if (it.running) "进行中" else "已就绪",
+                                "${it.turns} 轮",
+                            ).joinToString(" · ")
+                        } ?: "到对话页发第一条消息即可开始",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+        FilledTonalButton(onClick = onOpenChat, modifier = Modifier.padding(top = 8.dp)) {
+            Text("继续查看")
+            Icon(Icons.Filled.ChevronRight, contentDescription = null)
+        }
+    }
+}
+
+private data class LatestSession(val title: String, val running: Boolean, val turns: Int)
+
+/** 快捷入口（canvas quick_*）：纵向 ListItem，图标 + chevron。 */
+@Composable
+private fun QuickEntryList(
+    onOpenChat: () -> Unit,
+    onOpenSessions: () -> Unit,
+    onOpenPlugins: () -> Unit,
+    onOpenModels: () -> Unit,
+) {
+    Card(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+    ) {
+        Column {
+            QuickRow("新建对话", "开始一段新对话", Icons.Filled.Add, onOpenChat)
+            HorizontalDivider(Modifier.padding(horizontal = 16.dp))
+            QuickRow("会话列表", "浏览与管理工作区会话", Icons.Filled.Forum, onOpenSessions)
+            HorizontalDivider(Modifier.padding(horizontal = 16.dp))
+            QuickRow("插件管理", "安装、启用与配置插件", Icons.Filled.Extension, onOpenPlugins)
+            HorizontalDivider(Modifier.padding(horizontal = 16.dp))
+            QuickRow("模型配置", "切换模型与 Agent 预设", Icons.Filled.Tune, onOpenModels)
+        }
     }
 }
 
 @Composable
-private fun EngineCard(
-    state: EngineState,
-    now: Long,
-    onOpenChat: () -> Unit,
-    onRestart: () -> Unit,
+private fun QuickRow(
+    title: String,
+    supporting: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    onClick: () -> Unit,
 ) {
+    ListItem(
+        headlineContent = { Text(title) },
+        supportingContent = { Text(supporting) },
+        leadingContent = { Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+        trailingContent = {
+            Icon(
+                Icons.Filled.ChevronRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        },
+        modifier = Modifier.clickable(onClick = onClick),
+    )
+}
+
+/** 「本地核心」elevated 卡（canvas home_core），重启入口在此。 */
+@Composable
+private fun CoreStatusCard(state: EngineState, now: Long, onRestart: () -> Unit) {
     val title: String
     val detail: String
     when (state) {
         is EngineState.Ready -> {
-            title = "引擎运行中"
-            detail = "${state.baseUrl} · 已运行 ${formatDuration(now - state.since)}"
+            title = "Node.js 运行中"
+            detail = "端口 ${EnginePaths.PORT} · 已运行 ${formatDuration(now - state.since)} · ABI ${RuntimeInstaller.BUNDLED_ABI}"
         }
 
         is EngineState.Busy -> {
@@ -119,130 +257,46 @@ private fun EngineCard(
         }
 
         is EngineState.Failed -> {
-            title = "启动失败"
+            title = "引擎异常"
             detail = state.message
         }
 
         EngineState.Idle -> {
-            title = "未启动"
-            detail = "引擎尚未运行"
+            title = "引擎未启动"
+            detail = "到对话页或这里重启引擎"
         }
     }
 
     Card(
-        Modifier.fillMaxWidth().padding(16.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.primaryContainer,
-            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-        ),
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp),
+        colors = CardDefaults.elevatedCardColors(),
     ) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-            Text(detail, style = MaterialTheme.typography.bodyMedium)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (state is EngineState.Ready) {
-                    TextButton(onClick = onOpenChat) { Text("进入对话") }
-                }
-                TextButton(onClick = onRestart) { Text("重启引擎") }
+        Row(
+            Modifier.padding(16.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Icon(
+                Icons.Filled.Memory,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+            )
+            Column(Modifier.weight(1f)) {
+                Text(
+                    title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    detail,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
+            TextButton(onClick = onRestart) { Text("重启") }
         }
     }
-}
-
-@Composable
-private fun QuickEntry(
-    title: String,
-    supporting: String,
-    modifier: Modifier = Modifier,
-    onClick: () -> Unit,
-) {
-    Card(onClick = onClick, modifier = modifier) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(title, style = MaterialTheme.typography.titleSmall)
-            Text(
-                supporting,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    }
-}
-
-@Composable
-fun CapabilityCard(capabilities: CapabilitySnapshot, onGrantAllFiles: () -> Unit) {
-    Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
-        Column(Modifier.padding(vertical = 8.dp)) {
-            CapabilityRow(
-                title = "所有文件访问",
-                supporting = "授予后 agent 才能操作手机上的真实文件，工作区也会从应用私有目录切到 " +
-                    EnginePaths.SHARED_WORKSPACE + "（需重启引擎）。Node 打不开 SAF 的 content:// 路径，所以只能走这条权限。",
-                state = capabilities.allFiles,
-                actionLabel = "去授权",
-                onAction = onGrantAllFiles,
-            )
-            HorizontalDivider(Modifier.padding(horizontal = 16.dp))
-            CapabilityRow(
-                title = "Termux",
-                supporting = "提供完整的 Linux 用户态与 apt；装上后可获得不受限的 shell 环境。",
-                state = capabilities.termux,
-                actionLabel = null,
-                onAction = {},
-            )
-            HorizontalDivider(Modifier.padding(horizontal = 16.dp))
-            CapabilityRow(
-                title = "Shizuku",
-                supporting = "提供提权执行（绕开幽灵进程杀手）。它只提升身份，本身不提供运行时。",
-                state = capabilities.shizuku,
-                actionLabel = null,
-                onAction = {},
-            )
-        }
-    }
-}
-
-@Composable
-private fun CapabilityRow(
-    title: String,
-    supporting: String,
-    state: CapabilityState,
-    actionLabel: String?,
-    onAction: () -> Unit,
-) {
-    Row(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(title, style = MaterialTheme.typography.titleSmall)
-            Text(
-                supporting,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Text(
-                text = state.label(),
-                style = MaterialTheme.typography.labelMedium,
-                color = when (state) {
-                    CapabilityState.GRANTED -> MaterialTheme.colorScheme.primary
-                    CapabilityState.INSTALLED -> MaterialTheme.colorScheme.tertiary
-                    CapabilityState.NOT_INSTALLED, CapabilityState.UNSUPPORTED ->
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    CapabilityState.AVAILABLE -> MaterialTheme.colorScheme.tertiary
-                },
-            )
-        }
-        if (actionLabel != null && state == CapabilityState.AVAILABLE) {
-            OutlinedButton(onClick = onAction) { Text(actionLabel) }
-        }
-    }
-}
-
-fun CapabilityState.label(): String = when (this) {
-    CapabilityState.GRANTED -> "已具备"
-    CapabilityState.AVAILABLE -> "可申请"
-    CapabilityState.INSTALLED -> "已安装，待连接"
-    CapabilityState.NOT_INSTALLED -> "未安装"
-    CapabilityState.UNSUPPORTED -> "当前系统不支持"
 }
 
 fun formatDuration(millis: Long): String {

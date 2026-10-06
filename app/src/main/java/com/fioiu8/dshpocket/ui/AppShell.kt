@@ -20,27 +20,35 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Email
+import androidx.compose.material.icons.filled.Extension
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Forum
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.Scaffold
+import androidx.compose.material3.ModalDrawerSheet
+import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -48,6 +56,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.fioiu8.dshpocket.capability.Capabilities
@@ -59,11 +68,18 @@ import com.fioiu8.dshpocket.engine.SessionCookie
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+/**
+ * 导航目标（设计稿抽屉：m3e-canvas.json 的 drawer_* 六项）。
+ */
 enum class Destination(val label: String, val icon: ImageVector) {
     Home("首页", Icons.Filled.Home),
-    Chat("对话", Icons.Filled.Email),
+    Chat("对话", Icons.Filled.Forum),
+    Sessions("会话管理", Icons.Filled.Folder),
+    Plugins("插件管理", Icons.Filled.Extension),
+    Models("模型配置", Icons.Filled.Tune),
     Settings("设置", Icons.Filled.Settings),
 }
 
@@ -80,13 +96,14 @@ fun readCapabilities(context: android.content.Context): CapabilitySnapshot = Cap
     shizuku = Capabilities.shizuku(context),
 )
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AppShell(controller: EngineController) {
     val context = LocalContext.current
     val state by controller.state.collectAsState()
     val log by controller.log.collectAsState()
+    val scope = rememberCoroutineScope()
 
+    val drawerState = rememberDrawerState(DrawerValue.Closed)
     var destination by rememberSaveable { mutableStateOf(Destination.Home) }
     var capabilities by remember { mutableStateOf(readCapabilities(context)) }
 
@@ -95,14 +112,20 @@ fun AppShell(controller: EngineController) {
     var webLoaded by remember { mutableStateOf(false) }
     var webLoading by remember { mutableStateOf(false) }
     var webLoadError by remember { mutableStateOf<String?>(null) }
-    var blankRetryCount by remember { mutableStateOf(0) }
+    var blankRetryCount by remember { mutableIntStateOf(0) }
 
     val debugBuild = (context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
     if (debugBuild) WebView.setWebContentsDebuggingEnabled(true)
 
+    val openDrawer: () -> Unit = { scope.launch { drawerState.open() } }
+    val navigate: (Destination) -> Unit = { dest ->
+        destination = dest
+        scope.launch { drawerState.close() }
+    }
+
     LaunchedEffect(Unit) { controller.start() }
 
-    // Cheap re-read: returning from the system settings page lands back on a tab change.
+    // Cheap re-read: returning from the system settings page lands back on a navigation change.
     LaunchedEffect(destination) { capabilities = readCapabilities(context) }
 
     LaunchedEffect(state) {
@@ -170,201 +193,254 @@ fun AppShell(controller: EngineController) {
         }
     }
 
-    Scaffold(
-        modifier = Modifier.fillMaxSize(),
-        topBar = {
-            TopAppBar(
-                title = { Text(destination.label) },
-                actions = {
-                    TextButton(onClick = {
-                        webLoaded = false
-                        webLoading = false
-                        webLoadError = null
-                        blankRetryCount = 0
-                        EngineService.start(context)
-                        controller.restart()
-                    }) { Text("重启引擎") }
-                },
-            )
-        },
-        bottomBar = {
-            NavigationBar {
-                Destination.entries.forEach { entry ->
-                    NavigationBarItem(
-                        selected = destination == entry,
-                        onClick = { destination = entry },
-                        icon = { Icon(entry.icon, contentDescription = entry.label) },
-                        label = { Text(entry.label) },
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        drawerContent = {
+            ModalDrawerSheet {
+                Text(
+                    text = "DSH Pocket",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(horizontal = 28.dp, vertical = 20.dp),
+                )
+                HorizontalDivider(Modifier.padding(bottom = 8.dp))
+                Destination.entries.forEach { dest ->
+                    NavigationDrawerItemLabel(
+                        dest = dest,
+                        selected = destination == dest,
+                        onClick = { navigate(dest) },
                     )
                 }
             }
         },
-    ) { padding ->
-        Box(Modifier.fillMaxSize().padding(padding)) {
-            when (destination) {
-                Destination.Home -> HomeScreen(
-                    state = state,
-                    log = log,
-                    capabilities = capabilities,
-                    onOpenChat = { destination = Destination.Chat },
-                    onOpenSettings = { destination = Destination.Settings },
-                    onGrantAllFiles = { context.startActivity(Capabilities.allFilesAccessIntent(context)) },
-                    onRestart = {
-                        webLoaded = false
-                        webLoading = false
-                        webLoadError = null
-                        blankRetryCount = 0
-                        EngineService.start(context)
-                        controller.restart()
-                    },
-                )
+    ) {
+        when (destination) {
+            Destination.Home -> HomeScreen(
+                state = state,
+                onOpenChat = { destination = Destination.Chat },
+                onOpenSessions = { destination = Destination.Sessions },
+                onOpenPlugins = { destination = Destination.Plugins },
+                onOpenModels = { destination = Destination.Models },
+                onMenu = openDrawer,
+                onRestart = {
+                    EngineService.start(context)
+                    controller.restart()
+                },
+            )
 
-                Destination.Chat -> {
-                    val readyState = state as EngineState.Ready
-                    ChatScreen(
-                        state = readyState,
-                        webView = webView,
-                        loadError = webLoadError,
-                        onPageStarted = {
-                            webLoading = true
-                            webLoadError = null
-                        },
-                        onPageFinished = { view ->
-                            view.postDelayed({
+            Destination.Chat -> {
+                val readyState = state as? EngineState.Ready
+                ChatScreen(
+                    state = state,
+                    onMenu = openDrawer,
+                    webView = webView,
+                    loadError = webLoadError,
+                    onPageStarted = {
+                        webLoading = true
+                        webLoadError = null
+                    },
+                    onPageFinished = { view ->
+                        view.postDelayed({
                             view.evaluateJavascript(VIEWPORT_FIX_SCRIPT) { rawHeight ->
                                 val height = rawHeight.trim('"').toFloatOrNull() ?: 0f
                                 if (height < 1f && blankRetryCount < 1) {
-                                        blankRetryCount += 1
-                                        webLoaded = false
-                                        webLoading = true
-                                        Log.w("DshWebView", "page finished with empty body; retrying")
-                                        view.loadUrl("${readyState.baseUrl}/?token=${readyState.token}")
+                                    blankRetryCount += 1
+                                    webLoaded = false
+                                    webLoading = true
+                                    Log.w("DshWebView", "page finished with empty body; retrying")
+                                    view.loadUrl("${readyState?.baseUrl ?: ""}/?token=${readyState?.token ?: ""}")
                                 } else if (height < 1f) {
-                                        webLoading = false
-                                        webLoadError = "页面没有返回内容"
-                                        Log.e("DshWebView", "page finished with empty body after retry")
-                                    } else {
-                                        webLoading = false
-                                        webLoaded = true
-                                        webLoadError = null
-                                    }
+                                    webLoading = false
+                                    webLoadError = "页面没有返回内容"
+                                    Log.e("DshWebView", "page finished with empty body after retry")
+                                } else {
+                                    webLoading = false
+                                    webLoaded = true
+                                    webLoadError = null
                                 }
-                            }, 350)
-                        },
-                        onPageError = { message ->
-                            webLoaded = false
-                            webLoading = false
-                            webLoadError = message
-                        },
-                    )
-                }
-
-                Destination.Settings -> SettingsScreen(
-                    state = state,
-                    log = log,
-                    capabilities = capabilities,
-                    onGrantAllFiles = { context.startActivity(Capabilities.allFilesAccessIntent(context)) },
-                    onRestart = {
-                        webLoaded = false
-                        EngineService.start(context)
-                        controller.restart()
+                            }
+                        }, 350)
                     },
-                    onStop = {
-                        controller.stop()
-                        EngineService.stop(context)
+                    onPageError = { message ->
+                        webLoaded = false
+                        webLoading = false
+                        webLoadError = message
                     },
                 )
             }
+
+            Destination.Sessions -> SessionsScreen(
+                state = state,
+                onMenu = openDrawer,
+                onOpenChat = { destination = Destination.Chat },
+            )
+
+            Destination.Plugins -> PluginsScreen(state = state, onMenu = openDrawer)
+
+            Destination.Models -> ModelsScreen(state = state, onMenu = openDrawer)
+
+            Destination.Settings -> SettingsScreen(
+                state = state,
+                log = log,
+                capabilities = capabilities,
+                onMenu = openDrawer,
+                onOpenModels = { destination = Destination.Models },
+                onOpenPlugins = { destination = Destination.Plugins },
+                onGrantAllFiles = { context.startActivity(Capabilities.allFilesAccessIntent(context)) },
+                onRestart = {
+                    webLoaded = false
+                    EngineService.start(context)
+                    controller.restart()
+                },
+                onStop = {
+                    controller.stop()
+                    EngineService.stop(context)
+                },
+            )
         }
     }
+}
+
+@Composable
+private fun NavigationDrawerItemLabel(dest: Destination, selected: Boolean, onClick: () -> Unit) {
+    androidx.compose.material3.NavigationDrawerItem(
+        label = { Text(dest.label) },
+        icon = { Icon(dest.icon, contentDescription = dest.label) },
+        selected = selected,
+        onClick = onClick,
+        modifier = Modifier.padding(NavigationDrawerItemPadding),
+    )
+}
+
+private val NavigationDrawerItemPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp)
+
+/**
+ * 各屏共用的顶栏（设计稿 topAppBar，variant filled）：菜单图标开抽屉；
+ * [subtitle] 用于首页的实时引擎状态与对话页的模型信息。
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun DshTopAppBar(
+    title: String,
+    onMenu: () -> Unit,
+    modifier: Modifier = Modifier,
+    subtitle: String? = null,
+    actions: @Composable () -> Unit = {},
+) {
+    TopAppBar(
+        modifier = modifier,
+        navigationIcon = {
+            IconButton(onClick = onMenu) {
+                Icon(Icons.Filled.Menu, contentDescription = "打开导航抽屉")
+            }
+        },
+        title = {
+            Column {
+                Text(title, style = MaterialTheme.typography.titleLarge)
+                if (subtitle != null) {
+                    Text(
+                        subtitle,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        },
+        actions = { actions() },
+    )
 }
 
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 private fun ChatScreen(
     state: EngineState,
+    onMenu: () -> Unit,
     webView: androidx.compose.runtime.MutableState<WebView?>,
     loadError: String?,
     onPageStarted: () -> Unit,
     onPageFinished: (WebView) -> Unit,
     onPageError: (String) -> Unit,
 ) {
-    when (state) {
-        is EngineState.Ready -> Box(Modifier.fillMaxSize()) {
-            AndroidView(
-            modifier = Modifier.fillMaxSize(),
-            factory = { ctx ->
-                webView.value ?: WebView(ctx).apply {
-                    settings.javaScriptEnabled = true
-                    settings.domStorageEnabled = true
-                    settings.allowFileAccess = false
-                    settings.allowContentAccess = false
-                    settings.cacheMode = WebSettings.LOAD_DEFAULT
-                    settings.mediaPlaybackRequiresUserGesture = false
-                    webChromeClient = object : WebChromeClient() {
-                        override fun onConsoleMessage(message: ConsoleMessage): Boolean {
-                            if ((ctx.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0) {
-                                Log.d(
-                                    "DshWebView",
-                                    "console ${message.messageLevel()}: ${message.message()} " +
-                                        "(${message.sourceId()}:${message.lineNumber()})",
-                                )
+    androidx.compose.material3.Scaffold(
+        topBar = { DshTopAppBar(title = "对话", onMenu = onMenu) },
+    ) { padding ->
+        when (state) {
+            is EngineState.Ready -> Box(Modifier.fillMaxSize().padding(padding)) {
+                AndroidView(
+                    modifier = Modifier.fillMaxSize(),
+                    factory = { ctx ->
+                        webView.value ?: WebView(ctx).apply {
+                            settings.javaScriptEnabled = true
+                            settings.domStorageEnabled = true
+                            settings.allowFileAccess = false
+                            settings.allowContentAccess = false
+                            settings.cacheMode = WebSettings.LOAD_DEFAULT
+                            settings.mediaPlaybackRequiresUserGesture = false
+                            webChromeClient = object : WebChromeClient() {
+                                override fun onConsoleMessage(message: ConsoleMessage): Boolean {
+                                    if ((ctx.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0) {
+                                        Log.d(
+                                            "DshWebView",
+                                            "console ${message.messageLevel()}: ${message.message()} " +
+                                                "(${message.sourceId()}:${message.lineNumber()})",
+                                        )
+                                    }
+                                    return true
+                                }
                             }
-                            return true
-                        }
-                    }
-                    webViewClient = object : WebViewClient() {
-                        override fun onPageStarted(view: WebView, url: String, favicon: android.graphics.Bitmap?) {
-                            onPageStarted()
-                        }
+                            webViewClient = object : WebViewClient() {
+                                override fun onPageStarted(view: WebView, url: String, favicon: android.graphics.Bitmap?) {
+                                    onPageStarted()
+                                }
 
-                        override fun onPageFinished(view: WebView, url: String) {
-                            onPageFinished(view)
-                        }
+                                override fun onPageFinished(view: WebView, url: String) {
+                                    onPageFinished(view)
+                                }
 
-                        override fun onReceivedError(
-                            view: WebView,
-                            request: WebResourceRequest,
-                            error: WebResourceError,
-                        ) {
-                            if (request.isForMainFrame) {
-                                onPageError("${error.description} (${error.errorCode})")
+                                override fun onReceivedError(
+                                    view: WebView,
+                                    request: WebResourceRequest,
+                                    error: WebResourceError,
+                                ) {
+                                    if (request.isForMainFrame) {
+                                        onPageError("${error.description} (${error.errorCode})")
+                                    }
+                                }
+
+                                override fun shouldOverrideUrlLoading(view: WebView, url: String): Boolean =
+                                    when (Uri.parse(url).host) {
+                                        // The engine's own UI stays inside the app.
+                                        "127.0.0.1", "localhost" -> false
+                                        // Anything else leaves for the system browser.
+                                        else -> true
+                                    }
                             }
+                            webView.value = this
                         }
+                    },
+                )
 
-                        override fun shouldOverrideUrlLoading(view: WebView, url: String): Boolean =
-                            when (Uri.parse(url).host) {
-                                // The engine's own UI stays inside the app.
-                                "127.0.0.1", "localhost" -> false
-                                // Anything else leaves for the system browser.
-                                else -> true
-                            }
-                    }
-                    webView.value = this
+                if (loadError != null) {
+                    CenteredMessage(
+                        title = "界面加载失败",
+                        body = "$loadError\n请到首页「本地核心」卡重启引擎后重试。",
+                        busy = false,
+                    )
                 }
-            },
+            }
+
+            is EngineState.Failed -> CenteredMessage(
+                title = "引擎未能启动",
+                body = state.message,
+                busy = false,
             )
 
-            if (loadError != null) {
-                CenteredMessage(
-                    title = "界面加载失败",
-                    body = "$loadError\n请点上方“重启引擎”后重试。",
-                    busy = false,
-                )
-            }
+            else -> CenteredMessage(
+                title = "正在启动引擎",
+                body = (state as? EngineState.Busy)?.message ?: "准备中…",
+                busy = true,
+            )
         }
-
-        is EngineState.Failed -> CenteredMessage(
-            title = "引擎未能启动",
-            body = state.message,
-            busy = false,
-        )
-
-        else -> CenteredMessage(
-            title = "正在启动引擎",
-            body = (state as? EngineState.Busy)?.message ?: "准备中…",
-            busy = true,
-        )
     }
 }
 
@@ -457,15 +533,18 @@ private val VIEWPORT_FIX_SCRIPT = """
 @Composable
 fun CenteredMessage(title: String, body: String, busy: Boolean) {
     Column(
-        modifier = Modifier.fillMaxSize().padding(24.dp),
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         if (busy) CircularProgressIndicator()
         Text(title, style = MaterialTheme.typography.titleMedium)
-        Text(body, style = MaterialTheme.typography.bodyMedium)
+        if (body.isNotBlank()) {
+            Text(body, style = MaterialTheme.typography.bodyMedium)
+        }
     }
-    if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
 }
 
 @Composable
@@ -473,7 +552,8 @@ fun SectionHeader(text: String) {
     Text(
         text = text,
         style = MaterialTheme.typography.titleSmall,
-        color = MaterialTheme.colorScheme.primary,
+        fontWeight = FontWeight.SemiBold,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
     )
 }
@@ -514,3 +594,4 @@ fun KeyValueRow(key: String, value: String) {
 
 @Composable
 fun Divider() = HorizontalDivider(Modifier.padding(vertical = 4.dp))
+

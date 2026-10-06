@@ -42,7 +42,10 @@ object AgentBriefing {
                         (if (allFiles) "已授予，可以读写手机共享存储" else "未授予，只能读写应用私有目录") +
                         "**",
                 )
-                appendLine("- 执行 shell 命令：**不可用**（默认档不提供进程执行能力）")
+                appendLine(
+                    "- 执行 shell 命令：**不可用**（工具列表里能看到 bash，但本机没有可用的" +
+                        "沙箱后端，任何命令都会在执行前被拒绝，没有进程会被启动）",
+                )
                 appendLine("- Termux：${if (termuxInstalled) "已安装，但执行桥尚未接入" else "未安装"}")
                 appendLine("- Shizuku：${if (shizukuInstalled) "已安装，但执行桥尚未接入" else "未安装"}")
                 appendLine()

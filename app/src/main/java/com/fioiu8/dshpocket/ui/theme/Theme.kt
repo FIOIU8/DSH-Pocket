@@ -2,11 +2,23 @@ package com.fioiu8.dshpocket.ui.theme
 
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Shapes
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
+
+/** M3 "rounded" shape family（设计稿 theme.shape = rounded）。 */
+val DSHPocketShapes = Shapes(
+    extraSmall = RoundedCornerShape(4.dp),
+    small = RoundedCornerShape(8.dp),
+    medium = RoundedCornerShape(12.dp),
+    large = RoundedCornerShape(16.dp),
+    extraLarge = RoundedCornerShape(28.dp),
+)
 
 private val LightColors = lightColorScheme(
     primary = TealPrimaryLight,
@@ -112,6 +124,9 @@ fun DSHPocketTheme(
     MaterialTheme(
         colorScheme = colorScheme,
         typography = Typography,
+        shapes = DSHPocketShapes,
+        // 注：设计稿 theme.motion = expressive，但 material3 1.4.0 的 MotionScheme
+        // 仍是 internal API，等上游公开后在此接入 expressive 弹簧动效。
         content = content,
     )
 }

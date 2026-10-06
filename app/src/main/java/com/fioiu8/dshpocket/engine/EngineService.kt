@@ -97,11 +97,21 @@ class EngineService : Service() {
         while (serviceScope.isActive) {
             delay(HEALTH_INTERVAL_MS)
             val state = controller.state.value
-            if (state is EngineState.Ready && !EngineHealth.isReachable(state.baseUrl)) {
+            // Failed covers a dead engine: the process exit watcher transitions the
+            // controller out of Ready the moment the process dies, so a Ready-only
+            // reachability check would never fire for a crash or a kill.
+            // Idle means the user stopped the engine on purpose — leave it stopped.
+            val unhealthy = when (state) {
+                is EngineState.Ready -> !EngineHealth.isReachable(state.baseUrl)
+                is EngineState.Failed -> true
+                else -> false
+            }
+            if (unhealthy) {
                 val now = System.currentTimeMillis()
                 if (now - lastRestartAt >= RESTART_COOLDOWN_MS) {
                     lastRestartAt = now
-                    Log.w(TAG, "engine health check failed; restarting")
+                    val reason = (state as? EngineState.Failed)?.message ?: "unreachable while Ready"
+                    Log.w(TAG, "engine unhealthy ($reason); restarting")
                     controller.restart()
                 }
             }

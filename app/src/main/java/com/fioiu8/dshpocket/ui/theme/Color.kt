@@ -4,7 +4,7 @@ import androidx.compose.ui.graphics.Color
 
 /**
  * Material 3 tonal palette for the "teal" seed declared by the design reference
- * (`docs/ui-md3.json`: paletteKey = teal, bothModes = true, contrast = standard).
+ * (`docs/m3e-canvas.json`: paletteKey = teal, bothModes = true, contrast = standard).
  *
  * Hand-written rather than generated so the app does not depend on dynamic colour,
  * which the design explicitly disables (`dynamicColor: false`).

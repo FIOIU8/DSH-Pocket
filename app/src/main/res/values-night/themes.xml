@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!-- 暗色模式的窗口底色跟随 Compose 主题（teal dark surface），避免冷启动白闪。 -->
+    <style name="Theme.DSHPocket" parent="android:Theme.Material.NoActionBar" />
+</resources>
