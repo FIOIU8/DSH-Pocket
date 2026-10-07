@@ -138,8 +138,9 @@ class EngineController(private val context: Context) {
         val workspace = EnginePaths.workspace(context)
         dshHome.mkdirs()
         workspace.mkdirs()
+        val nativeChatSuggestionsModule = EnginePaths.installNativeChatSuggestionsTool(context, root)
         // Point the engine's default workspace at a directory Android actually has.
-        EnginePaths.writeHomePatch(dshHome, workspace)
+        EnginePaths.writeHomePatch(dshHome, workspace, nativeChatSuggestionsModule)
         // Brief the agent on its current capabilities (loaded from $DSH_HOME/AGENTS.md).
         AgentBriefing.write(context, dshHome, workspace)
 

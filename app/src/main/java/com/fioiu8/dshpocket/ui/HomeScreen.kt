@@ -6,9 +6,11 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Add
@@ -42,6 +44,9 @@ import com.fioiu8.dshpocket.engine.EngineApi
 import com.fioiu8.dshpocket.engine.EnginePaths
 import com.fioiu8.dshpocket.engine.EngineState
 import com.fioiu8.dshpocket.engine.RuntimeInstaller
+import com.fioiu8.dshpocket.ui.theme.DshShapes
+import com.fioiu8.dshpocket.ui.theme.DshSpacing
+import com.fioiu8.dshpocket.ui.theme.dshControl
 import kotlinx.coroutines.delay
 import org.json.JSONObject
 
@@ -82,7 +87,7 @@ fun HomeScreen(
                 .fillMaxSize()
                 .padding(padding)
                 .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
+            verticalArrangement = Arrangement.spacedBy(DshSpacing.compact),
         ) {
             LatestSessionSection(state, onOpenChat)
 
@@ -148,12 +153,13 @@ private fun LatestSessionSection(state: EngineState, onOpenChat: () -> Unit) {
         }
     }
 
-    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = DshSpacing.page, vertical = DshSpacing.compact)) {
         val session = latest
         Card(
             onClick = onOpenChat,
             modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+            shape = RoundedCornerShape(DshShapes.surface),
         ) {
             Row(
                 Modifier.padding(16.dp),
@@ -183,7 +189,13 @@ private fun LatestSessionSection(state: EngineState, onOpenChat: () -> Unit) {
                 }
             }
         }
-        FilledTonalButton(onClick = onOpenChat, modifier = Modifier.padding(top = 8.dp)) {
+        FilledTonalButton(
+            onClick = onOpenChat,
+            modifier = Modifier
+                .padding(top = DshSpacing.compact)
+                .dshControl(),
+            shape = RoundedCornerShape(DshShapes.control),
+        ) {
             Text("继续查看")
             Icon(Icons.Filled.ChevronRight, contentDescription = null)
         }
@@ -200,22 +212,17 @@ private fun QuickEntryList(
     onOpenPlugins: () -> Unit,
     onOpenModels: () -> Unit,
 ) {
-    Card(
-        Modifier
+    GroupedList(
+        modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-    ) {
-        Column {
-            QuickRow("新建对话", "开始一段新对话", Icons.Filled.Add, onOpenChat)
-            HorizontalDivider(Modifier.padding(horizontal = 16.dp))
-            QuickRow("会话列表", "浏览与管理工作区会话", Icons.Filled.Forum, onOpenSessions)
-            HorizontalDivider(Modifier.padding(horizontal = 16.dp))
-            QuickRow("插件管理", "安装、启用与配置插件", Icons.Filled.Extension, onOpenPlugins)
-            HorizontalDivider(Modifier.padding(horizontal = 16.dp))
-            QuickRow("模型配置", "切换模型与 Agent 预设", Icons.Filled.Tune, onOpenModels)
-        }
-    }
+            .padding(horizontal = DshSpacing.page),
+        items = listOf(
+            { QuickRow("新建对话", "开始一段新对话", Icons.Filled.Add, onOpenChat) },
+            { QuickRow("会话列表", "浏览与管理工作区会话", Icons.Filled.Forum, onOpenSessions) },
+            { QuickRow("插件管理", "安装、启用与配置插件", Icons.Filled.Extension, onOpenPlugins) },
+            { QuickRow("模型配置", "切换模型与 Agent 预设", Icons.Filled.Tune, onOpenModels) },
+        ),
+    )
 }
 
 @Composable
@@ -236,7 +243,7 @@ private fun QuickRow(
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         },
-        modifier = Modifier.clickable(onClick = onClick),
+        modifier = Modifier.heightIn(min = DshSpacing.touchTarget).clickable(onClick = onClick),
     )
 }
 
@@ -270,8 +277,9 @@ private fun CoreStatusCard(state: EngineState, now: Long, onRestart: () -> Unit)
     Card(
         Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp),
-        colors = CardDefaults.elevatedCardColors(),
+            .padding(horizontal = DshSpacing.page),
+        colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+        shape = RoundedCornerShape(DshShapes.surface),
     ) {
         Row(
             Modifier.padding(16.dp),
@@ -294,7 +302,7 @@ private fun CoreStatusCard(state: EngineState, now: Long, onRestart: () -> Unit)
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            TextButton(onClick = onRestart) { Text("重启") }
+            TextButton(onClick = onRestart, modifier = Modifier.dshControl()) { Text("重启") }
         }
     }
 }

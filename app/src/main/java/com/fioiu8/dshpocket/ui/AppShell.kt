@@ -10,16 +10,40 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.webkit.WebViewCompat
+import androidx.webkit.WebViewFeature
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.activity.compose.BackHandler
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Forum
@@ -53,9 +77,13 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -65,6 +93,11 @@ import com.fioiu8.dshpocket.engine.EngineController
 import com.fioiu8.dshpocket.engine.EngineService
 import com.fioiu8.dshpocket.engine.EngineState
 import com.fioiu8.dshpocket.engine.SessionCookie
+import com.fioiu8.dshpocket.ui.theme.DshMotion
+import com.fioiu8.dshpocket.ui.theme.DshShapes
+import com.fioiu8.dshpocket.ui.theme.DshSpacing
+import com.fioiu8.dshpocket.ui.theme.motionDuration
+import com.fioiu8.dshpocket.ui.theme.systemAnimationsEnabled
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -96,15 +129,50 @@ fun readCapabilities(context: android.content.Context): CapabilitySnapshot = Cap
     shizuku = Capabilities.shizuku(context),
 )
 
+private fun loadNativeChatPreferences(context: android.content.Context): NativeChatPreferences {
+    val prefs = context.getSharedPreferences("ui_preferences", android.content.Context.MODE_PRIVATE)
+    return NativeChatPreferences(
+        showMessageTime = prefs.getBoolean("native_chat_show_time", true),
+        showTokenUsage = prefs.getBoolean("native_chat_show_tokens", true),
+        showDuration = prefs.getBoolean("native_chat_show_duration", true),
+        showAssistReply = prefs.getBoolean("native_chat_show_assist", false),
+    )
+}
+
+private fun saveNativeChatPreferences(context: android.content.Context, preferences: NativeChatPreferences) {
+    context.getSharedPreferences("ui_preferences", android.content.Context.MODE_PRIVATE)
+        .edit()
+        .putBoolean("native_chat_show_time", preferences.showMessageTime)
+        .putBoolean("native_chat_show_tokens", preferences.showTokenUsage)
+        .putBoolean("native_chat_show_duration", preferences.showDuration)
+        .putBoolean("native_chat_show_assist", preferences.showAssistReply)
+        .apply()
+}
+
 @Composable
 fun AppShell(controller: EngineController) {
     val context = LocalContext.current
     val state by controller.state.collectAsState()
     val log by controller.log.collectAsState()
+    val animationsEnabled = systemAnimationsEnabled()
+    val pageDuration = motionDuration(DshMotion.pageDurationMillis)
+    val exitFadeDuration = motionDuration(140)
+    val exitSlideDuration = motionDuration(160)
     val scope = rememberCoroutineScope()
 
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     var destination by rememberSaveable { mutableStateOf(Destination.Home) }
+    var settingsSection by rememberSaveable { mutableStateOf<String?>(null) }
+    var chatPresentation by remember {
+        mutableStateOf(
+            context.getSharedPreferences("ui_preferences", android.content.Context.MODE_PRIVATE)
+                .getString("chat_presentation", ChatPresentation.Native.key)
+                ?.let { ChatPresentation.fromKey(it) } ?: ChatPresentation.Native,
+        )
+    }
+    var nativeChatPreferences by remember {
+        mutableStateOf(loadNativeChatPreferences(context))
+    }
     var capabilities by remember { mutableStateOf(readCapabilities(context)) }
 
     // The WebView instance outlives tab switches so returning to 对话 does not reload it.
@@ -120,10 +188,15 @@ fun AppShell(controller: EngineController) {
     val openDrawer: () -> Unit = { scope.launch { drawerState.open() } }
     val navigate: (Destination) -> Unit = { dest ->
         destination = dest
+        if (dest != Destination.Settings) settingsSection = null
         scope.launch { drawerState.close() }
     }
 
     LaunchedEffect(Unit) { controller.start() }
+
+    BackHandler(enabled = destination == Destination.Settings && settingsSection != null) {
+        settingsSection = null
+    }
 
     // Cheap re-read: returning from the system settings page lands back on a navigation change.
     LaunchedEffect(destination) { capabilities = readCapabilities(context) }
@@ -214,7 +287,30 @@ fun AppShell(controller: EngineController) {
             }
         },
     ) {
-        when (destination) {
+        AnimatedContent(
+            targetState = destination to if (destination == Destination.Settings) settingsSection else null,
+            transitionSpec = {
+                (
+                    fadeIn(animationSpec = tween(pageDuration)) +
+                        slideInHorizontally(
+                            animationSpec = if (animationsEnabled) {
+                                spring(dampingRatio = 0.86f, stiffness = 420f)
+                            } else {
+                                tween(0)
+                            },
+                            initialOffsetX = { it / 12 },
+                        )
+                    ) togetherWith (
+                        fadeOut(animationSpec = tween(exitFadeDuration)) +
+                            slideOutHorizontally(
+                                animationSpec = tween(exitSlideDuration),
+                                targetOffsetX = { -it / 20 },
+                            )
+                        ) using SizeTransform(clip = false)
+            },
+            label = "destination-transition",
+        ) { navigationTarget ->
+        when (navigationTarget.first) {
             Destination.Home -> HomeScreen(
                 state = state,
                 onOpenChat = { destination = Destination.Chat },
@@ -230,43 +326,52 @@ fun AppShell(controller: EngineController) {
 
             Destination.Chat -> {
                 val readyState = state as? EngineState.Ready
-                ChatScreen(
-                    state = state,
-                    onMenu = openDrawer,
-                    webView = webView,
-                    loadError = webLoadError,
-                    onPageStarted = {
-                        webLoading = true
-                        webLoadError = null
-                    },
-                    onPageFinished = { view ->
-                        view.postDelayed({
-                            view.evaluateJavascript(VIEWPORT_FIX_SCRIPT) { rawHeight ->
-                                val height = rawHeight.trim('"').toFloatOrNull() ?: 0f
-                                if (height < 1f && blankRetryCount < 1) {
-                                    blankRetryCount += 1
-                                    webLoaded = false
-                                    webLoading = true
-                                    Log.w("DshWebView", "page finished with empty body; retrying")
-                                    view.loadUrl("${readyState?.baseUrl ?: ""}/?token=${readyState?.token ?: ""}")
-                                } else if (height < 1f) {
-                                    webLoading = false
-                                    webLoadError = "页面没有返回内容"
-                                    Log.e("DshWebView", "page finished with empty body after retry")
-                                } else {
-                                    webLoading = false
-                                    webLoaded = true
-                                    webLoadError = null
+                if (chatPresentation == ChatPresentation.Native) {
+                    NativeChatScreen(
+                        state = state,
+                        onMenu = openDrawer,
+                        preferences = nativeChatPreferences,
+                    )
+                } else {
+                    ChatScreen(
+                        state = state,
+                        onMenu = openDrawer,
+                        webView = webView,
+                        loading = webLoading,
+                        loadError = webLoadError,
+                        onPageStarted = {
+                            webLoading = true
+                            webLoadError = null
+                        },
+                        onPageFinished = { view ->
+                            view.postDelayed({
+                                view.evaluateJavascript(VIEWPORT_FIX_SCRIPT) { rawHeight ->
+                                    val height = rawHeight.trim('"').toFloatOrNull() ?: 0f
+                                    if (height < 1f && blankRetryCount < 1) {
+                                        blankRetryCount += 1
+                                        webLoaded = false
+                                        webLoading = true
+                                        Log.w("DshWebView", "page finished with empty body; retrying")
+                                        view.loadUrl("${readyState?.baseUrl ?: ""}/?token=${readyState?.token ?: ""}")
+                                    } else if (height < 1f) {
+                                        webLoading = false
+                                        webLoadError = "页面没有返回内容"
+                                        Log.e("DshWebView", "page finished with empty body after retry")
+                                    } else {
+                                        webLoading = false
+                                        webLoaded = true
+                                        webLoadError = null
+                                    }
                                 }
-                            }
-                        }, 350)
-                    },
-                    onPageError = { message ->
-                        webLoaded = false
-                        webLoading = false
-                        webLoadError = message
-                    },
-                )
+                            }, 350)
+                        },
+                        onPageError = { message ->
+                            webLoaded = false
+                            webLoading = false
+                            webLoadError = message
+                        },
+                    )
+                }
             }
 
             Destination.Sessions -> SessionsScreen(
@@ -279,40 +384,92 @@ fun AppShell(controller: EngineController) {
 
             Destination.Models -> ModelsScreen(state = state, onMenu = openDrawer)
 
-            Destination.Settings -> SettingsScreen(
-                state = state,
-                log = log,
-                capabilities = capabilities,
-                onMenu = openDrawer,
-                onOpenModels = { destination = Destination.Models },
-                onOpenPlugins = { destination = Destination.Plugins },
-                onGrantAllFiles = { context.startActivity(Capabilities.allFilesAccessIntent(context)) },
-                onRestart = {
-                    webLoaded = false
-                    EngineService.start(context)
-                    controller.restart()
-                },
-                onStop = {
-                    controller.stop()
-                    EngineService.stop(context)
-                },
-            )
+            Destination.Settings -> {
+                val section = navigationTarget.second?.let { SettingsSection.fromKey(it) }
+                if (section == null) {
+                    SettingsHomeScreen(
+                        onMenu = openDrawer,
+                        onOpenSection = { settingsSection = it.key },
+                    )
+                } else {
+                    SettingsDetailScreen(
+                        section = section,
+                        state = state,
+                        log = log,
+                        capabilities = capabilities,
+                        chatPresentation = chatPresentation,
+                        onChatPresentationChange = { presentation ->
+                            chatPresentation = presentation
+                            context.getSharedPreferences("ui_preferences", android.content.Context.MODE_PRIVATE)
+                                .edit().putString("chat_presentation", presentation.key).apply()
+                        },
+                        nativeChatPreferences = nativeChatPreferences,
+                        onNativeChatPreferencesChange = { preferences ->
+                            nativeChatPreferences = preferences
+                            saveNativeChatPreferences(context, preferences)
+                        },
+                        onBack = { settingsSection = null },
+                        onOpenModels = { destination = Destination.Models; settingsSection = null },
+                        onOpenPlugins = { destination = Destination.Plugins; settingsSection = null },
+                        onGrantAllFiles = { context.startActivity(Capabilities.allFilesAccessIntent(context)) },
+                        onRestart = {
+                            webLoaded = false
+                            EngineService.start(context)
+                            controller.restart()
+                        },
+                        onStop = {
+                            controller.stop()
+                            EngineService.stop(context)
+                        },
+                    )
+                }
+            }
+        }
         }
     }
 }
 
 @Composable
 private fun NavigationDrawerItemLabel(dest: Destination, selected: Boolean, onClick: () -> Unit) {
-    androidx.compose.material3.NavigationDrawerItem(
-        label = { Text(dest.label) },
-        icon = { Icon(dest.icon, contentDescription = dest.label) },
-        selected = selected,
-        onClick = onClick,
-        modifier = Modifier.padding(NavigationDrawerItemPadding),
-    )
+    val colors = MaterialTheme.colorScheme
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 4.dp)
+            .background(
+                if (selected) colors.secondaryContainer else Color.Transparent,
+                RoundedCornerShape(DshShapes.control),
+            )
+            .clip(RoundedCornerShape(DshShapes.control))
+            .clickable(onClick = onClick)
+            .heightIn(min = DshSpacing.touchTarget)
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+    ) {
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier
+                .size(40.dp)
+                .background(
+                    if (selected) colors.primary else colors.surfaceContainerHighest,
+                    CircleShape,
+                ),
+        ) {
+            Icon(
+                dest.icon,
+                contentDescription = null,
+                tint = if (selected) colors.onPrimary else colors.onSurfaceVariant,
+                modifier = Modifier.size(DshSpacing.icon),
+            )
+        }
+        Spacer(Modifier.size(12.dp))
+        Text(
+            dest.label,
+        style = MaterialTheme.typography.bodyLarge,
+        color = if (selected) colors.onSurface else colors.onSurfaceVariant,
+        )
+    }
 }
-
-private val NavigationDrawerItemPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp)
 
 /**
  * 各屏共用的顶栏（设计稿 topAppBar，variant filled）：菜单图标开抽屉；
@@ -325,23 +482,32 @@ fun DshTopAppBar(
     onMenu: () -> Unit,
     modifier: Modifier = Modifier,
     subtitle: String? = null,
+    onBack: (() -> Unit)? = null,
     actions: @Composable () -> Unit = {},
 ) {
     TopAppBar(
         modifier = modifier,
         navigationIcon = {
-            IconButton(onClick = onMenu) {
-                Icon(Icons.Filled.Menu, contentDescription = "打开导航抽屉")
+            IconButton(
+                onClick = onBack ?: onMenu,
+                modifier = Modifier.size(DshSpacing.touchTarget),
+            ) {
+                Icon(
+                    imageVector = if (onBack == null) Icons.Filled.Menu else Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = if (onBack == null) "打开导航抽屉" else "返回设置",
+                )
             }
         },
         title = {
             Column {
-                Text(title, style = MaterialTheme.typography.titleLarge)
+                Text(title, style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 if (subtitle != null) {
                     Text(
                         subtitle,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
             }
@@ -356,6 +522,7 @@ private fun ChatScreen(
     state: EngineState,
     onMenu: () -> Unit,
     webView: androidx.compose.runtime.MutableState<WebView?>,
+    loading: Boolean,
     loadError: String?,
     onPageStarted: () -> Unit,
     onPageFinished: (WebView) -> Unit,
@@ -365,11 +532,32 @@ private fun ChatScreen(
         topBar = { DshTopAppBar(title = "对话", onMenu = onMenu) },
     ) { padding ->
         when (state) {
-            is EngineState.Ready -> Box(Modifier.fillMaxSize().padding(padding)) {
+            is EngineState.Ready -> Box(
+                Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+                    .background(MaterialTheme.colorScheme.background),
+            ) {
+                val webBackground = MaterialTheme.colorScheme.background.toArgb()
+                val webOrigin = (state as? EngineState.Ready)?.baseUrl?.let { baseUrl ->
+                    Uri.parse(baseUrl).let { uri -> "${uri.scheme}://${uri.authority}" }
+                }
                 AndroidView(
                     modifier = Modifier.fillMaxSize(),
                     factory = { ctx ->
                         webView.value ?: WebView(ctx).apply {
+                            setBackgroundColor(webBackground)
+                            var timeZoneScriptInstalled = false
+                            if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
+                                timeZoneScriptInstalled = runCatching {
+                                    WebViewCompat.addDocumentStartJavaScript(
+                                        this,
+                                        TIME_ZONE_FIX_SCRIPT,
+                                        setOfNotNull(webOrigin),
+                                    )
+                                    true
+                                }.getOrDefault(false)
+                            }
                             settings.javaScriptEnabled = true
                             settings.domStorageEnabled = true
                             settings.allowFileAccess = false
@@ -390,11 +578,22 @@ private fun ChatScreen(
                             }
                             webViewClient = object : WebViewClient() {
                                 override fun onPageStarted(view: WebView, url: String, favicon: android.graphics.Bitmap?) {
+                                    if (!timeZoneScriptInstalled) {
+                                        view.evaluateJavascript(TIME_ZONE_FIX_SCRIPT, null)
+                                    }
                                     onPageStarted()
                                 }
 
                                 override fun onPageFinished(view: WebView, url: String) {
-                                    onPageFinished(view)
+                                    view.evaluateJavascript(
+                                        "$TIME_ZONE_FIX_SCRIPT\nIntl.DateTimeFormat().resolvedOptions().timeZone",
+                                    ) { rawTimeZone ->
+                                        val timeZone = rawTimeZone?.trim('"')
+                                        if (timeZone != null && !isValidWebTimeZone(timeZone)) {
+                                            Log.w("DshWebView", "Invalid browser time zone '$timeZone'; UTC fallback applied")
+                                        }
+                                        onPageFinished(view)
+                                    }
                                 }
 
                                 override fun onReceivedError(
@@ -420,12 +619,27 @@ private fun ChatScreen(
                     },
                 )
 
-                if (loadError != null) {
-                    CenteredMessage(
-                        title = "界面加载失败",
-                        body = "$loadError\n请到首页「本地核心」卡重启引擎后重试。",
-                        busy = false,
-                    )
+                when {
+                    loadError != null -> Surface(
+                        modifier = Modifier.fillMaxSize(),
+                        color = MaterialTheme.colorScheme.background,
+                    ) {
+                        CenteredMessage(
+                            title = "界面加载失败",
+                            body = "$loadError\n请到首页「本地核心」卡重启引擎后重试。",
+                            busy = false,
+                        )
+                    }
+                    loading -> Surface(
+                        modifier = Modifier.fillMaxSize(),
+                        color = MaterialTheme.colorScheme.background,
+                    ) {
+                        CenteredMessage(
+                            title = "正在加载对话",
+                            body = "正在连接本地引擎…",
+                            busy = true,
+                        )
+                    }
                 }
             }
 
@@ -443,6 +657,30 @@ private fun ChatScreen(
         }
     }
 }
+
+private val TIME_ZONE_FIX_SCRIPT = """
+(() => {
+  const prototype = Intl.DateTimeFormat.prototype;
+  if (prototype.__dshPocketTimeZoneFixed) return;
+  const original = prototype.resolvedOptions;
+  prototype.resolvedOptions = function() {
+    const options = original.apply(this, arguments);
+    const zone = options.timeZone;
+    const valid = zone === 'UTC' || isAreaLocationTimeZone(zone);
+    if (!valid) options.timeZone = 'UTC';
+    return options;
+  };
+  Object.defineProperty(prototype, '__dshPocketTimeZoneFixed', { value: true });
+  function isAreaLocationTimeZone(zone) {
+    if (typeof zone !== 'string' || !/^[A-Za-z_+-]+(/[A-Za-z0-9._+-]+)+$/.test(zone)) return false;
+    try { new Intl.DateTimeFormat('en', { timeZone: zone }); return true; }
+    catch (_) { return false; }
+  }
+})();
+""".trimIndent()
+
+private fun isValidWebTimeZone(timeZone: String): Boolean =
+    timeZone == "UTC" || timeZone.matches(Regex("[A-Za-z_+-]+(/[A-Za-z0-9._+-]+)+"))
 
 private val VIEWPORT_FIX_SCRIPT = """
 (() => {
@@ -535,14 +773,18 @@ fun CenteredMessage(title: String, body: String, busy: Boolean) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(24.dp),
+            .padding(DshSpacing.page),
         verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        if (busy) CircularProgressIndicator()
-        Text(title, style = MaterialTheme.typography.titleMedium)
+        if (busy) CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+        Text(title, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
         if (body.isNotBlank()) {
-            Text(body, style = MaterialTheme.typography.bodyMedium)
+            Text(
+                body,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }
@@ -554,8 +796,58 @@ fun SectionHeader(text: String) {
         style = MaterialTheme.typography.titleSmall,
         fontWeight = FontWeight.SemiBold,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+        modifier = Modifier.padding(horizontal = DshSpacing.page, vertical = DshSpacing.section),
     )
+}
+
+/** 分组连续列表容器（m3e 拼接列表）：整组共用一个圆角面，行间自动加细分隔线。 */
+@Composable
+fun GroupedList(
+    modifier: Modifier = Modifier,
+    items: List<@Composable () -> Unit>,
+) {
+    val shape = RoundedCornerShape(DshShapes.surface)
+    val listAnimationDuration = motionDuration(180)
+    Surface(
+        modifier = modifier.border(
+            1.dp,
+            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f),
+            shape,
+        ),
+        shape = shape,
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        tonalElevation = 1.dp,
+    ) {
+        Column {
+            items.forEachIndexed { index, item ->
+                if (index > 0) HorizontalDivider(
+                    modifier = Modifier.padding(horizontal = DshSpacing.page),
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f),
+                )
+                AnimatedVisibility(
+                    visible = true,
+                    enter = fadeIn(
+                        animationSpec = tween(
+                            durationMillis = listAnimationDuration,
+                            delayMillis = if (listAnimationDuration == 0) 0 else {
+                                index.coerceAtMost(DshMotion.maxStaggerItems - 1) * DshMotion.staggerStepMillis
+                            },
+                        ),
+                    ) + slideInVertically(
+                        animationSpec = tween(
+                            durationMillis = listAnimationDuration,
+                            delayMillis = if (listAnimationDuration == 0) 0 else {
+                                index.coerceAtMost(DshMotion.maxStaggerItems - 1) * DshMotion.staggerStepMillis
+                            },
+                        ),
+                        initialOffsetY = { it / 32 },
+                    ),
+                ) {
+                    item()
+                }
+            }
+        }
+    }
 }
 
 @Composable
@@ -564,7 +856,7 @@ fun LogPanel(log: List<String>, modifier: Modifier = Modifier) {
         modifier
             .fillMaxWidth()
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp, vertical = 8.dp),
+            .padding(horizontal = DshSpacing.page, vertical = DshSpacing.compact),
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
         log.takeLast(120).forEach {
@@ -580,14 +872,19 @@ fun LogPanel(log: List<String>, modifier: Modifier = Modifier) {
 @Composable
 fun KeyValueRow(key: String, value: String) {
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
+        Modifier
+            .fillMaxWidth()
+            .heightIn(min = DshSpacing.touchTarget)
+            .padding(horizontal = DshSpacing.row, vertical = DshSpacing.rowVertical),
+        horizontalArrangement = Arrangement.spacedBy(DshSpacing.row),
+        verticalAlignment = Alignment.Top,
     ) {
-        Text(key, style = MaterialTheme.typography.bodyMedium)
+        Text(key, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(0.8f))
         Text(
             value,
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1.2f),
         )
     }
 }

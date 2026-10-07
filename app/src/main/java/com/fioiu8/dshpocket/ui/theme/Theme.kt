@@ -95,7 +95,7 @@ private val DarkColors = darkColorScheme(
 )
 
 /**
- * The design reference asks for the teal palette in both modes with dynamic colour off,
+ * The design reference asks for the fixed cool-neutral palette in both modes,
  * so the scheme here is fixed. [dynamicColor] is kept as an escape hatch for users who
  * prefer their wallpaper palette.
  */
