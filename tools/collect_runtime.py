@@ -31,15 +31,15 @@ DSH_VERSION = "0.2.0-rc.2"
 # Every entry here is permissive-licensed; nothing GPL/LGPL.
 CLOSURE = [
     "nodejs-lts",     # MIT          - the runtime
-    "libc++",         # Apache-2.0   - nodejs-lts hard dep
+    "libc++",         # NCSA         - nodejs-lts hard dep
     "openssl",        # Apache-2.0
     "c-ares",         # MIT
-    "libicu",         # Unicode-3.0
+    "libicu",         # custom; validate the upstream ICU license text
     "libsqlite",      # Public domain
     "zlib",           # Zlib
-    "resolv-conf",    # c-ares dep
+    "resolv-conf",    # Public Domain - c-ares dep
     "ca-certificates",# MPL-2.0 (Mozilla CA bundle, file-level copyleft, not GPL)
-    "ripgrep",        # MIT/Unlicense - fs search
+    "ripgrep",        # MIT          - fs search
     "pcre2",          # BSD-3-Clause
 ]
 
