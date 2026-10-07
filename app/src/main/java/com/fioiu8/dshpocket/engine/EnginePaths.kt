@@ -83,6 +83,15 @@ object EnginePaths {
         PORT.toString(),
     )
 
+    fun installNativeChatSuggestionsTool(context: Context, root: File): File {
+        val module = File(root, "lib/node_modules/@deepseek-ai/dsh-pocket-native-chat-suggestions/index.mjs")
+        module.parentFile?.mkdirs()
+        context.assets.open("native-chat-suggestions.mjs").use { input ->
+            module.outputStream().use(input::copyTo)
+        }
+        return module
+    }
+
     /**
      * Home-level patch layer (`$DSH_HOME/cordis.patch.yml`).
      *
@@ -92,7 +101,7 @@ object EnginePaths {
      * nowhere to work. Patches replace the target row's whole config, so this restates the
      * only field we set.
      */
-    fun writeHomePatch(dshHome: File, workspace: File) {
+    fun writeHomePatch(dshHome: File, workspace: File, nativeChatSuggestionsModule: File) {
         dshHome.mkdirs()
         val yaml = buildString {
             appendLine("# Written by DSH Pocket on every boot; any manual edit is overwritten.")
@@ -102,6 +111,9 @@ object EnginePaths {
             appendLine("- id: workspace-controller")
             appendLine("  config:")
             appendLine("    documentsDirectory: \"${workspace.absolutePath}\"")
+            appendLine("- insert:")
+            appendLine("    - id: dsh-pocket-native-chat-suggestions")
+            appendLine("      name: \"${nativeChatSuggestionsModule.toURI().toASCIIString()}\"")
         }
         File(dshHome, "cordis.patch.yml").writeText(yaml)
     }

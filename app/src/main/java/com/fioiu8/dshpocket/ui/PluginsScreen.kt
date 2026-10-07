@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -15,7 +16,6 @@ import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -34,6 +34,7 @@ import com.fioiu8.dshpocket.engine.EngineState
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.json.JSONObject
+import com.fioiu8.dshpocket.ui.theme.DshSpacing
 
 /**
  * 插件管理（m3e-canvas.json 的 plugins 帧）。
@@ -132,20 +133,27 @@ fun PluginsScreen(state: EngineState, onMenu: () -> Unit) {
                                 .fillMaxSize()
                                 .verticalScroll(rememberScrollState()),
                         ) {
-                            visible.forEach { row ->
-                                PluginRowItem(
-                                    row = row,
-                                    busy = busyId == row.id,
-                                    onToggle = { enabled -> toggle(row, enabled) },
-                                )
-                                HorizontalDivider(Modifier.padding(horizontal = 16.dp))
-                            }
+                            SectionHeader("已安装插件")
+                            GroupedList(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                .padding(horizontal = DshSpacing.page),
+                                items = visible.map { row ->
+                                    {
+                                        PluginRowItem(
+                                            row = row,
+                                            busy = busyId == row.id,
+                                            onToggle = { enabled -> toggle(row, enabled) },
+                                        )
+                                    }
+                                },
+                            )
                             Text(
                                 text = "安装与卸载需要联网拉取插件包，将在后续版本接入；" +
                                     "当前可在此启停已随包安装的插件，改动即时生效。",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(16.dp),
+                                 modifier = Modifier.padding(DshSpacing.page),
                             )
                         }
                     }
@@ -226,5 +234,6 @@ private fun PluginRowItem(row: PluginRow, busy: Boolean, onToggle: (Boolean) -> 
                 enabled = row.readOnlyReason == null && !busy,
             )
         },
+        modifier = Modifier.heightIn(min = DshSpacing.touchTarget),
     )
 }
