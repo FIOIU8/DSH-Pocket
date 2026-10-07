@@ -60,7 +60,7 @@ private fun AnnotatedString.Builder.renderBlocks(parent: Node, color: Color, lin
     var child = parent.firstChild
     while (child != null) {
         when (child) {
-            is Paragraph -> child.renderInline(color, linkColor)
+            is Paragraph -> renderInline(child, color, linkColor)
             is Heading -> {
                 val size = when (child.level) {
                     1 -> 1.35f
@@ -68,25 +68,25 @@ private fun AnnotatedString.Builder.renderBlocks(parent: Node, color: Color, lin
                     else -> 1.08f
                 }
                 pushStyle(SpanStyle(fontWeight = FontWeight.Bold, fontSize = (16f * size).sp))
-                child.renderInline(color, linkColor)
+                renderInline(child, color, linkColor)
                 pop()
             }
             is FencedCodeBlock -> appendCode(child.literal, color)
             is IndentedCodeBlock -> appendCode(child.literal, color)
-            is BulletList -> child.renderList(color, linkColor, null)
-            is OrderedList -> child.renderList(color, linkColor, child.startNumber)
+            is BulletList -> renderList(child, color, linkColor, null)
+            is OrderedList -> renderList(child, color, linkColor, child.startNumber)
             is BlockQuote -> {
                 pushStyle(SpanStyle(color = color.copy(alpha = 0.82f), fontWeight = FontWeight.Medium))
                 append("│ ")
-                child.renderBlocks(color, linkColor)
+                renderBlocks(child, color, linkColor)
                 pop()
             }
             is ThematicBreak -> append("──────────")
-            else -> child.renderInline(color, linkColor)
+            else -> renderInline(child, color, linkColor)
         }
         child = child.next
         if (child != null && length > 0) {
-            if (this[length - 1] != '\n') append('\n')
+            if (toAnnotatedString().text.lastOrNull() != '\n') append('\n')
             if (child !is ListItem && child !is Paragraph && child !is Heading) append('\n')
         }
     }
@@ -97,9 +97,9 @@ private fun AnnotatedString.Builder.renderList(parent: Node, color: Color, linkC
     var number = start ?: 1
     while (child != null) {
         if (child is ListItem) {
-            if (length > 0 && this[length - 1] != '\n') append('\n')
+            if (length > 0 && toAnnotatedString().text.lastOrNull() != '\n') append('\n')
             append(if (start == null) "• " else "${number}. ")
-            child.renderBlocks(color, linkColor)
+            renderBlocks(child, color, linkColor)
             if (start != null) number++
         }
         child = child.next
@@ -116,13 +116,13 @@ private fun AnnotatedString.Builder.renderInline(parent: Node, color: Color, lin
                 append(child.literal)
                 pop()
             }
-            is Emphasis -> withStyle(SpanStyle(fontStyle = androidx.compose.ui.text.font.FontStyle.Italic)) { child.renderInline(color, linkColor) }
-            is StrongEmphasis -> withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { child.renderInline(color, linkColor) }
-            is Link -> withStyle(SpanStyle(color = linkColor, textDecoration = TextDecoration.Underline)) { child.renderInline(color, linkColor) }
+            is Emphasis -> withStyle(SpanStyle(fontStyle = androidx.compose.ui.text.font.FontStyle.Italic)) { renderInline(child, color, linkColor) }
+            is StrongEmphasis -> withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { renderInline(child, color, linkColor) }
+            is Link -> withStyle(SpanStyle(color = linkColor, textDecoration = TextDecoration.Underline)) { renderInline(child, color, linkColor) }
             is SoftLineBreak -> append(' ')
             is HardLineBreak -> append('\n')
             is HtmlInline -> append(child.literal)
-            else -> child.renderInline(color, linkColor)
+            else -> renderInline(child, color, linkColor)
         }
         child = child.next
     }
@@ -135,7 +135,7 @@ private fun AnnotatedString.Builder.withStyle(style: SpanStyle, block: Annotated
 }
 
 private fun AnnotatedString.Builder.appendCode(code: String, color: Color) {
-    if (length > 0 && this[length - 1] != '\n') append('\n')
+    if (length > 0 && toAnnotatedString().text.lastOrNull() != '\n') append('\n')
     pushStyle(SpanStyle(background = color.copy(alpha = 0.09f), fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace))
     append(code.trimEnd())
     pop()
