@@ -3,6 +3,7 @@ package com.fioiu8.dshpocket.engine
 import android.content.Context
 import android.util.Log
 import com.fioiu8.dshpocket.capability.AgentBriefing
+import com.fioiu8.dshpocket.capability.Capabilities
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -136,13 +137,14 @@ class EngineController(private val context: Context) {
         if (!isCurrent(runId)) return
         val dshHome = EnginePaths.dshHome(context)
         val workspace = EnginePaths.workspace(context)
+        val capabilities = Capabilities.snapshot(context, workspace)
         dshHome.mkdirs()
         workspace.mkdirs()
         val nativeChatSuggestionsModule = EnginePaths.installNativeChatSuggestionsTool(context, root)
         // Point the engine's default workspace at a directory Android actually has.
         EnginePaths.writeHomePatch(dshHome, workspace, nativeChatSuggestionsModule)
         // Brief the agent on its current capabilities (loaded from $DSH_HOME/AGENTS.md).
-        AgentBriefing.write(context, dshHome, workspace)
+        AgentBriefing.write(dshHome, capabilities)
 
         val command = EnginePaths.command(root)
         appendLog("$ ${command.joinToString(" ")}")

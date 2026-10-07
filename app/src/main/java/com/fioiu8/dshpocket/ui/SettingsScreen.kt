@@ -55,7 +55,10 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.fioiu8.dshpocket.capability.CapabilitySnapshot
 import com.fioiu8.dshpocket.capability.CapabilityState
+import com.fioiu8.dshpocket.capability.CompanionStatus
+import com.fioiu8.dshpocket.capability.ProcessExecutionCapability
 import com.fioiu8.dshpocket.engine.EnginePaths
 import com.fioiu8.dshpocket.engine.EngineState
 import com.fioiu8.dshpocket.engine.RuntimeInstaller
@@ -206,7 +209,7 @@ fun SettingsDetailScreen(
                     )
                     SectionHeader("设备能力")
                     CapabilityCard(capabilities, onGrantAllFiles)
-                    HelperText("默认以 App 自身的权限运行引擎；安装 Termux 或 Shizuku 后，相关能力会热载。")
+                    HelperText("引擎默认以 DSH Pocket 自身权限运行。安装 Termux 或 Shizuku 不会自动开放命令执行；连接执行桥后才会更新能力状态。")
                 }
                 SettingsSection.Runtime -> {
                     SectionHeader("运行时")
@@ -450,22 +453,74 @@ fun CapabilityCard(capabilities: CapabilitySnapshot, onGrantAllFiles: () -> Unit
                 onAction = onGrantAllFiles,
             )
             HorizontalDivider(Modifier.padding(horizontal = 16.dp))
-            CapabilityRow(
+            CompanionCapabilityRow(
                 title = "Termux",
-                supporting = "提供完整的 Linux 用户态与 apt；装上后可获得不受限的 shell 环境。",
-                capabilityState = capabilities.termux,
-                actionLabel = null,
-                onAction = {},
+                supporting = "提供 Linux 用户态；安装不会自动开放命令执行，DSH Pocket 当前尚未接入 Termux 执行桥。",
+                status = capabilities.termux,
             )
             HorizontalDivider(Modifier.padding(horizontal = 16.dp))
-            CapabilityRow(
+            CompanionCapabilityRow(
                 title = "Shizuku",
-                supporting = "提供提权执行（绕开幽灵进程杀手）。它只提升身份，本身不提供运行时。",
-                capabilityState = capabilities.shizuku,
-                actionLabel = null,
-                onAction = {},
+                supporting = "可提供进程授权；DSH Pocket 当前尚未连接 Shizuku 服务或执行桥。",
+                status = capabilities.shizuku,
             )
+            HorizontalDivider(Modifier.padding(horizontal = 16.dp))
+            ProcessExecutionRow(capabilities)
         }
+    }
+}
+
+@Composable
+private fun CompanionCapabilityRow(title: String, supporting: String, status: CompanionStatus) {
+    val label = when (status) {
+        CompanionStatus.NOT_INSTALLED -> "未安装"
+        CompanionStatus.INSTALLED -> "已安装，尚未授权或连接"
+        CompanionStatus.AUTHORIZED -> "已授权，等待服务运行"
+        CompanionStatus.RUNNING -> "运行中，执行桥未连接"
+        CompanionStatus.BRIDGE_CONNECTED -> "执行桥已连接"
+        CompanionStatus.UNSUPPORTED -> "当前设备不支持"
+    }
+    val color = when (status) {
+        CompanionStatus.BRIDGE_CONNECTED -> MaterialTheme.colorScheme.primary
+        CompanionStatus.INSTALLED, CompanionStatus.AUTHORIZED, CompanionStatus.RUNNING -> MaterialTheme.colorScheme.tertiary
+        CompanionStatus.NOT_INSTALLED, CompanionStatus.UNSUPPORTED -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    Column(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = DshSpacing.rowVertical),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        Text(title, style = MaterialTheme.typography.titleSmall)
+        Text(supporting, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(label, style = MaterialTheme.typography.labelMedium, color = color)
+    }
+}
+
+@Composable
+private fun ProcessExecutionRow(capabilities: CapabilitySnapshot) {
+    val execution = capabilities.processExecution
+    val reason = (execution as? ProcessExecutionCapability.Unavailable)
+        ?.reason
+        ?.takeIf(String::isNotBlank)
+    val available = execution is ProcessExecutionCapability.Available
+    Column(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = DshSpacing.rowVertical),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        Text("Shell 命令执行", style = MaterialTheme.typography.titleSmall)
+        Text(
+            reason ?: if (available) {
+                "通过 ${(execution as ProcessExecutionCapability.Available).backend.displayName} 提供。"
+            } else {
+                "尚未连接 Termux 或 Shizuku 执行桥。"
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            if (available) "可用" else "不可用",
+            style = MaterialTheme.typography.labelMedium,
+            color = if (available) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 

@@ -7,6 +7,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.Settings
+import java.io.File
 
 /**
  * The capability ladder from D12.
@@ -31,6 +32,48 @@ enum class CapabilityState {
     /** Not applicable on this device or Android version. */
     UNSUPPORTED,
 }
+
+/** Lifecycle of an optional execution companion; installation alone grants no execution. */
+enum class CompanionStatus {
+    NOT_INSTALLED,
+    INSTALLED,
+    AUTHORIZED,
+    RUNNING,
+    BRIDGE_CONNECTED,
+    UNSUPPORTED,
+}
+
+val CompanionStatus.isInstalled: Boolean
+    get() = this != CompanionStatus.NOT_INSTALLED && this != CompanionStatus.UNSUPPORTED
+
+enum class ExecutionBackend(val wireValue: String, val displayName: String) {
+    TERMUX("termux", "Termux"),
+    SHIZUKU("shizuku", "Shizuku"),
+}
+
+sealed interface ProcessExecutionCapability {
+    val available: Boolean
+    val backend: ExecutionBackend?
+    val reason: String?
+
+    data class Available(override val backend: ExecutionBackend) : ProcessExecutionCapability {
+        override val available = true
+        override val reason: String? = null
+    }
+
+    data class Unavailable(override val reason: String?) : ProcessExecutionCapability {
+        override val available = false
+        override val backend: ExecutionBackend? = null
+    }
+}
+
+data class CapabilitySnapshot(
+    val workspace: String,
+    val allFiles: CapabilityState,
+    val termux: CompanionStatus,
+    val shizuku: CompanionStatus,
+    val processExecution: ProcessExecutionCapability,
+)
 
 object Capabilities {
 
@@ -75,14 +118,34 @@ object Capabilities {
     }
 
     /** Termux supplies a full Linux userland (and a second, unmodified path to dsh). */
-    fun termux(context: Context): CapabilityState =
-        if (isInstalled(context, TERMUX_PACKAGE)) CapabilityState.INSTALLED else CapabilityState.NOT_INSTALLED
+    fun termux(context: Context): CompanionStatus =
+        if (isInstalled(context, TERMUX_PACKAGE)) CompanionStatus.INSTALLED else CompanionStatus.NOT_INSTALLED
 
     /**
      * Shizuku supplies privilege, not a runtime: it can only raise the identity of the
      * processes we already ship. Merely detecting the APK is all we can do without
      * binding to its service, which is the next step (D11).
      */
-    fun shizuku(context: Context): CapabilityState =
-        if (isInstalled(context, SHIZUKU_PACKAGE)) CapabilityState.INSTALLED else CapabilityState.NOT_INSTALLED
+    fun shizuku(context: Context): CompanionStatus =
+        if (isInstalled(context, SHIZUKU_PACKAGE)) CompanionStatus.INSTALLED else CompanionStatus.NOT_INSTALLED
+
+    /** One capability view shared by the UI and all agent-facing representations. */
+    fun snapshot(context: Context, workspace: File): CapabilitySnapshot {
+        val termux = termux(context)
+        val shizuku = shizuku(context)
+        val execution = when {
+            termux == CompanionStatus.BRIDGE_CONNECTED -> ProcessExecutionCapability.Available(ExecutionBackend.TERMUX)
+            shizuku == CompanionStatus.BRIDGE_CONNECTED -> ProcessExecutionCapability.Available(ExecutionBackend.SHIZUKU)
+            else -> ProcessExecutionCapability.Unavailable(
+                reason = "No Termux or Shizuku execution bridge is connected to DSH Pocket.",
+            )
+        }
+        return CapabilitySnapshot(
+            workspace = workspace.absolutePath,
+            allFiles = allFilesAccess(context),
+            termux = termux,
+            shizuku = shizuku,
+            processExecution = execution,
+        )
+    }
 }

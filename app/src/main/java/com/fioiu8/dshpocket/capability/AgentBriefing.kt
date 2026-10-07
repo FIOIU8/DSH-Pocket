@@ -1,75 +1,181 @@
 package com.fioiu8.dshpocket.capability
 
-import android.content.Context
+import android.util.AtomicFile
+import org.json.JSONObject
 import java.io.File
 
-/**
- * Tells the agent what it can and cannot do right now, and how the user can change that.
- *
- * `@deepseek-ai/dsh-agent-instructions` loads the user-global `$DSH_HOME/AGENTS.md` into
- * the first durable baseline message of every session (enabled by default through
- * `dsh-base`), so this needs no plugin of our own. The file lives outside the workspace
- * so the agent's own file tools cannot clobber it, and the app rewrites it on every boot.
- */
+/** Writes DSH-managed policy and capability blocks while preserving user instructions. Policy changes ship with the app version. */
 object AgentBriefing {
 
     private const val INSTRUCTIONS = "AGENTS.md"
     private const val CAPABILITIES = "capabilities.json"
+    private const val START_MARKER = "<!-- DSH Pocket managed capabilities: start -->"
+    private const val END_MARKER = "<!-- DSH Pocket managed capabilities: end -->"
+    private const val POLICY_START_MARKER = "<!-- DSH Pocket managed policy: start -->"
+    private const val POLICY_END_MARKER = "<!-- DSH Pocket managed policy: end -->"
+    private val ASSISTANT_POLICY = listOf(
+        "You are the local AI assistant inside DSH Pocket, not a desktop coding agent.",
+        "Respond in the user's language. Describe only capabilities listed here as available, and never claim an action succeeded unless the corresponding tool confirms it.",
+    )
 
-    fun write(context: Context, dshHome: File, workspace: File) {
-        val allFiles = Capabilities.allFilesAccess(context) == CapabilityState.GRANTED
-        val termuxState = Capabilities.termux(context)
-        val shizukuState = Capabilities.shizuku(context)
-        val termuxInstalled = termuxState == CapabilityState.INSTALLED
-        val shizukuInstalled = shizukuState == CapabilityState.INSTALLED
-
+    @Synchronized
+    fun write(dshHome: File, snapshot: CapabilitySnapshot) {
         dshHome.mkdirs()
-        File(dshHome, INSTRUCTIONS).writeText(
-            buildString {
-                appendLine("# 运行环境（由 DSH Pocket 写入，每次启动覆盖）")
-                appendLine()
-                appendLine("你运行在一台 Android 手机上的内置运行时里。以下是当前环境的事实，")
-                appendLine("不要假设比这更多的能力。")
-                appendLine()
-                appendLine("## 工作区")
-                appendLine("- 工作目录：`${workspace.absolutePath}`")
-                appendLine("- 文件读写应限制在这个目录内。")
-                appendLine()
-                appendLine("## 当前能力")
-                appendLine("- 文件读写 / 搜索 / 替换：可用")
-                appendLine(
-                    "- 「所有文件访问」：**" +
-                        (if (allFiles) "已授予，可以读写手机共享存储" else "未授予，只能读写应用私有目录") +
-                        "**",
-                )
-                appendLine(
-                    "- 执行 shell 命令：**不可用**（工具列表里能看到 bash，但本机没有可用的" +
-                        "沙箱后端，任何命令都会在执行前被拒绝，没有进程会被启动）",
-                )
-                appendLine("- Termux：${if (termuxInstalled) "已安装，但执行桥尚未接入" else "未安装"}")
-                appendLine("- Shizuku：${if (shizukuInstalled) "已安装，但执行桥尚未接入" else "未安装"}")
-                appendLine()
-                appendLine("## 需要更高能力时怎么办")
-                appendLine("你无法自行提权，也不要反复重试已知不可用的能力。当任务确实需要时：")
-                appendLine("1. 明确告诉用户你缺什么、为什么需要；")
-                appendLine("2. 请用户打开 DSH Pocket → 设置 → 能力与权限：")
-                appendLine("   - 要读写手机上的真实文件 → 授予「所有文件访问」（授予后工作区会切到共享存储，需重启引擎）")
-                appendLine("   - 要执行命令 → 安装 Termux（提供完整 Linux 环境）或 Shizuku（提供提权执行）")
-                appendLine("3. 注意：Shizuku 只提升执行身份，本身不提供运行时；Termux 才提供环境。")
-            },
-        )
+        val instructionsFile = File(dshHome, INSTRUCTIONS)
+        val existing = instructionsFile.takeIf(File::isFile)?.readText().orEmpty()
+        writeAtomically(File(dshHome, CAPABILITIES), capabilitiesJson(snapshot))
+        writeAtomically(instructionsFile, mergeManagedInstructions(existing, renderCapabilities(snapshot)))
+    }
 
-        File(dshHome, CAPABILITIES).writeText(
-            buildString {
-                appendLine("{")
-                appendLine("  \"workspace\": \"${workspace.absolutePath.replace("\\", "\\\\")}\",")
-                appendLine("  \"allFilesAccess\": $allFiles,")
-                appendLine("  \"termuxInstalled\": $termuxInstalled,")
-                appendLine("  \"shizukuInstalled\": $shizukuInstalled,")
-                appendLine("  \"processExecution\": false,")
-                appendLine("  \"note\": \"Shell execution is intentionally unavailable in the default tier. Ask the user to install Termux or Shizuku.\"")
-                appendLine("}")
-            },
-        )
+    private fun renderPolicy(): String = buildString {
+        check(ASSISTANT_POLICY.none { POLICY_START_MARKER in it || POLICY_END_MARKER in it }) {
+            "Assistant policy must not contain managed-block markers."
+        }
+        appendLine(POLICY_START_MARKER)
+        appendLine("# DSH Pocket assistant policy")
+        appendLine()
+        ASSISTANT_POLICY.forEach { appendLine(it) }
+        append(POLICY_END_MARKER)
+    }
+
+    private fun renderCapabilities(snapshot: CapabilitySnapshot): String = buildString {
+        appendLine(START_MARKER)
+        appendLine("# DSH Pocket runtime facts")
+        appendLine()
+        appendLine("This section is generated by DSH Pocket from the current capability snapshot.")
+        appendLine("These facts are authoritative for DSH Pocket runtime capabilities only. They do not override user instructions about task goals, style, or safety.")
+        appendLine()
+        appendLine("## Workspace")
+        appendLine("- Workspace root: ${markdownCodeSpan(snapshot.workspace)}")
+        appendLine("- Keep file operations within the workspace unless the user has explicitly granted broader access and the relevant tool supports it.")
+        appendLine()
+        appendLine("## Capabilities")
+        appendLine("- All-files access: ${if (snapshot.allFiles == CapabilityState.GRANTED) "granted" else "not granted"}.")
+        appendLine("- Termux: ${snapshot.termux.toInstructionStatus()}.")
+        appendLine("- Shizuku: ${snapshot.shizuku.toInstructionStatus()}.")
+        val execution = snapshot.processExecution
+        appendLine("- Companion status describes the app/service state; process execution availability below is the only authority for whether the agent can execute processes.")
+        when (execution) {
+            is ProcessExecutionCapability.Available -> appendLine("- Process execution: available through the ${execution.backend.displayName} backend. This names the implementation, not an agent tool.")
+            is ProcessExecutionCapability.Unavailable -> {
+                val reason = execution.reason?.takeIf(String::isNotBlank)
+                appendLine("- Process execution: unavailable.${reason?.let { " $it" }.orEmpty()}")
+                appendLine("- Do not claim to run shell commands or code, and do not retry an unavailable execution tool. If execution is required, tell the user to open DSH Pocket > Settings > Device capabilities and explain that a connected execution bridge is required.")
+            }
+        }
+        appendLine(END_MARKER)
+    }.trimEnd()
+
+    /** Schema consumers must reject unsupported versions and ignore unknown fields. */
+    internal fun capabilitiesJson(snapshot: CapabilitySnapshot): String = JSONObject()
+        .put("schemaVersion", 1)
+        .put("workspace", snapshot.workspace.toString())
+        .put("allFilesAccess", snapshot.allFiles == CapabilityState.GRANTED)
+        .put("termuxInstalled", snapshot.termux.isInstalled)
+        .put("termuxStatus", snapshot.termux.wireValue)
+        .put("shizukuInstalled", snapshot.shizuku.isInstalled)
+        .put("shizukuStatus", snapshot.shizuku.wireValue)
+        .put("processExecution", snapshot.processExecution.available)
+        .put("processExecutionBackendKind", snapshot.processExecution.backend?.wireValue ?: JSONObject.NULL)
+        .put("processExecutionReason", snapshot.processExecution.reason ?: JSONObject.NULL)
+        .toString(2)
+
+    /** Replaces blocks in place; existing order follows the user file, while missing blocks are prepended. */
+    internal fun mergeManagedInstructions(existing: String, generatedSection: String): String {
+        val withCapabilities = mergeManagedBlock(existing, START_MARKER, END_MARKER, generatedSection)
+        return mergeManagedBlock(withCapabilities, POLICY_START_MARKER, POLICY_END_MARKER, renderPolicy())
+    }
+
+    private fun mergeManagedBlock(
+        existing: String,
+        startMarker: String,
+        endMarker: String,
+        generatedSection: String,
+    ): String {
+        check(generatedSection.containsExactlyOnce(startMarker) && generatedSection.containsExactlyOnce(endMarker)) {
+            "Generated section must contain exactly one pair of managed-block markers."
+        }
+        val merged = StringBuilder(existing.length + generatedSection.length)
+        var cursor = 0
+        var replaced = false
+        while (cursor < existing.length) {
+            val start = existing.indexOf(startMarker, cursor)
+            val end = existing.indexOf(endMarker, cursor)
+            if (end >= 0 && (start < 0 || end < start)) {
+                merged.append(existing, cursor, end)
+                cursor = end + endMarker.length
+            } else if (start >= 0) {
+                merged.append(existing, cursor, start)
+                val nestedStart = existing.indexOf(startMarker, start + startMarker.length)
+                val matchingEnd = existing.indexOf(endMarker, start + startMarker.length)
+                if (matchingEnd >= 0 && (nestedStart < 0 || matchingEnd < nestedStart)) {
+                    if (!replaced) {
+                        merged.append(generatedSection)
+                        replaced = true
+                    }
+                    cursor = matchingEnd + endMarker.length
+                    if (cursor == existing.length || existing[cursor] != '\n' && existing[cursor] != '\r') {
+                        merged.append('\n')
+                    }
+                } else {
+                    cursor = start + startMarker.length
+                }
+            } else {
+                merged.append(existing, cursor, existing.length)
+                cursor = existing.length
+            }
+        }
+        val preserved = merged.toString()
+        if (replaced) return preserved
+        if (preserved.isBlank()) return "$generatedSection\n"
+        // Keep runtime facts at the start of the baseline message while preserving user text verbatim.
+        return "$generatedSection\n\n$preserved"
+    }
+
+    private fun String.containsExactlyOnce(value: String): Boolean {
+        val first = indexOf(value)
+        return first >= 0 && indexOf(value, first + value.length) < 0
+    }
+
+    private val CompanionStatus.wireValue: String
+        get() = when (this) {
+            CompanionStatus.NOT_INSTALLED -> "not_installed"
+            CompanionStatus.INSTALLED -> "installed"
+            CompanionStatus.AUTHORIZED -> "authorized"
+            CompanionStatus.RUNNING -> "running"
+            CompanionStatus.BRIDGE_CONNECTED -> "bridge_connected"
+            CompanionStatus.UNSUPPORTED -> "unsupported"
+        }
+
+    private fun markdownCodeSpan(value: String): String {
+        val normalized = value.replace("\r", "\\r").replace("\n", "\\n").replace("<!--", "&lt;!--")
+        val longestBacktickRun = Regex("`+").findAll(normalized).maxOfOrNull { it.value.length } ?: 0
+        val delimiter = "`".repeat(longestBacktickRun + 1)
+        return "$delimiter $normalized $delimiter"
+    }
+
+    private fun CompanionStatus.toInstructionStatus(): String = when (this) {
+        CompanionStatus.NOT_INSTALLED -> "not installed"
+        CompanionStatus.INSTALLED -> "installed; DSH Pocket bridge is not connected"
+        CompanionStatus.AUTHORIZED -> "authorized; waiting for the service to run"
+        CompanionStatus.RUNNING -> "running; execution bridge is not connected"
+        CompanionStatus.BRIDGE_CONNECTED -> "execution bridge connected"
+        CompanionStatus.UNSUPPORTED -> "not supported on this device"
+    }
+
+    private fun writeAtomically(file: File, contents: String) {
+        file.parentFile?.let { parent ->
+            check(parent.isDirectory || parent.mkdirs()) { "Cannot create directory: $parent" }
+        }
+        val atomic = AtomicFile(file)
+        val stream = atomic.startWrite()
+        try {
+            stream.write(contents.toByteArray(Charsets.UTF_8))
+            stream.fd.sync()
+            atomic.finishWrite(stream)
+        } catch (failure: Throwable) {
+            atomic.failWrite(stream)
+            throw failure
+        }
     }
 }

@@ -88,8 +88,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.fioiu8.dshpocket.capability.Capabilities
-import com.fioiu8.dshpocket.capability.CapabilityState
+import com.fioiu8.dshpocket.capability.CapabilitySnapshot
 import com.fioiu8.dshpocket.engine.EngineController
+import com.fioiu8.dshpocket.engine.EnginePaths
 import com.fioiu8.dshpocket.engine.EngineService
 import com.fioiu8.dshpocket.engine.EngineState
 import com.fioiu8.dshpocket.engine.SessionCookie
@@ -116,18 +117,9 @@ enum class Destination(val label: String, val icon: ImageVector) {
     Settings("设置", Icons.Filled.Settings),
 }
 
-/** Snapshot of the D12 capability ladder; read on demand rather than observed. */
-data class CapabilitySnapshot(
-    val allFiles: CapabilityState,
-    val termux: CapabilityState,
-    val shizuku: CapabilityState,
-)
-
-fun readCapabilities(context: android.content.Context): CapabilitySnapshot = CapabilitySnapshot(
-    allFiles = Capabilities.allFilesAccess(context),
-    termux = Capabilities.termux(context),
-    shizuku = Capabilities.shizuku(context),
-)
+/** Read one coherent capability view for UI and generated agent context. */
+fun readCapabilities(context: android.content.Context): CapabilitySnapshot =
+    Capabilities.snapshot(context, EnginePaths.workspace(context))
 
 private fun loadNativeChatPreferences(context: android.content.Context): NativeChatPreferences {
     val prefs = context.getSharedPreferences("ui_preferences", android.content.Context.MODE_PRIVATE)
