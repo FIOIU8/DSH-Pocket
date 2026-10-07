@@ -16,8 +16,17 @@ android {
         // 允许从 filesDir 直接 execve 随包分发的 bionic 二进制（Termux 同款策略）。
         // 依据见 docs/architecture-review.md 的 D7 复议；代价是无法上架 Play。
         targetSdk = 28
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = providers.gradleProperty("appVersionCode").orNull?.toIntOrNull() ?: 1
+        versionName = providers.gradleProperty("appVersionName").orNull ?: "1.0"
+
+        val runtimeArch = providers.gradleProperty("runtimeArch").orNull ?: "x86_64"
+        val bundledAbi = when (runtimeArch) {
+            "x86_64" -> "x86_64"
+            "aarch64" -> "arm64-v8a"
+            else -> error("Unsupported runtimeArch: $runtimeArch")
+        }
+        buildConfigField("String", "BUNDLED_ABI", "\"$bundledAbi\"")
+        buildConfigField("String", "RUNTIME_ARCH", "\"$runtimeArch\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -33,6 +42,15 @@ android {
             keyAlias = "androiddebugkey"
             keyPassword = "android"
         }
+        create("releaseCi") {
+            val keystorePath = providers.gradleProperty("releaseStoreFile").orNull
+            if (keystorePath != null) {
+                storeFile = rootProject.file(keystorePath)
+                storePassword = providers.gradleProperty("releaseStorePassword").orNull
+                keyAlias = providers.gradleProperty("releaseKeyAlias").orNull
+                keyPassword = providers.gradleProperty("releaseKeyPassword").orNull
+            }
+        }
     }
 
     buildTypes {
@@ -44,6 +62,9 @@ android {
                 enable = true
                 packageScope = setOf("androidx.**", "kotlin.**", "kotlinx.**")
             }
+            if (providers.gradleProperty("releaseStoreFile").isPresent) {
+                signingConfig = signingConfigs.getByName("releaseCi")
+            }
         }
     }
     compileOptions {
@@ -52,6 +73,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
     lint {
         // targetSdk 28 is deliberate: the side-loaded APK executes its bundled
@@ -74,6 +96,7 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.webkit)
     testImplementation(libs.junit)
+    testImplementation(libs.json)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     androidTestImplementation(libs.androidx.espresso.core)

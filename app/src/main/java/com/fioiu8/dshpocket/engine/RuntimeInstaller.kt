@@ -3,6 +3,7 @@ package com.fioiu8.dshpocket.engine
 import android.content.Context
 import android.os.Build
 import android.util.Log
+import com.fioiu8.dshpocket.BuildConfig
 import java.io.BufferedInputStream
 import java.io.File
 import java.io.FileOutputStream
@@ -21,8 +22,9 @@ object RuntimeInstaller {
 
     private const val TAG = "RuntimeInstaller"
 
-    /** Must match the `--arch` the asset was collected for. */
-    const val BUNDLED_ABI = "x86_64"
+    /** Android ABI of the native runtime packaged in `assets/runtime.zip`. */
+    val BUNDLED_ABI = BuildConfig.BUNDLED_ABI
+    private val runtimeArch = BuildConfig.RUNTIME_ARCH
 
     private const val ASSET = "runtime.zip"
 
@@ -113,10 +115,10 @@ object RuntimeInstaller {
         "runtime-format=3 abi=$BUNDLED_ABI app-version=${appVersion(context)}"
 
     private fun ripgrepBinary(root: File): File {
-        val nodeArch = when (BUNDLED_ABI) {
+        val nodeArch = when (runtimeArch) {
             "x86_64" -> "x64"
             "aarch64" -> "arm64"
-            else -> error("不支持的 ripgrep ABI：$BUNDLED_ABI")
+            else -> error("不支持的运行时架构：$runtimeArch")
         }
         return File(root, "lib/node_modules/@vscode/ripgrep-android-$nodeArch/bin/rg")
     }

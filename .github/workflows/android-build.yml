@@ -1,0 +1,72 @@
+name: Android arm64 build
+
+on:
+  push:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Create temporary debug signing key
+        run: |
+          mkdir -p .keystore
+          keytool -genkeypair -v \
+            -keystore .keystore/debug.keystore \
+            -storepass android \
+            -alias androiddebugkey \
+            -keypass android \
+            -dname "CN=Android Debug,O=Android,C=US" \
+            -keyalg RSA -keysize 2048 -validity 10000
+
+      - name: Collect arm64 Android runtime
+        run: |
+          python tools/collect_runtime.py fetch --arch aarch64 --work .runtime-work
+          npm init -y --prefix .runtime-work/bundle
+          npm install --prefix .runtime-work/bundle \
+            --omit=dev --ignore-scripts --no-audit --no-fund \
+            @deepseek-ai/dsh@0.2.0-rc.2
+          python tools/collect_runtime.py pack \
+            --arch aarch64 \
+            --work .runtime-work \
+            --out .runtime-work/runtime-aarch64.zip
+          cp .runtime-work/runtime-aarch64.zip app/src/main/assets/runtime.zip
+
+      - name: Run tests, lint, and build arm64 APK
+        run: >-
+          ./gradlew --no-daemon testDebugUnitTest lintDebug assembleDebug
+          -PappVersionCode=${GITHUB_RUN_NUMBER}
+          -PappVersionName=0.0.${GITHUB_RUN_NUMBER}-ci
+          -PruntimeArch=aarch64
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: dsh-pocket-arm64-ci-${{ github.run_number }}
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14

@@ -1,0 +1,142 @@
+name: Draft Android release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release version and tag, for example v1.0.0
+        required: true
+        default: v1.0.0
+        type: string
+      dsh_offset:
+        description: DSH release offset (blank or 0 = latest, -1 = previous, -2 = two back)
+        required: false
+        default: '0'
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-release-${{ inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_VERSION: ${{ inputs.version }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Validate release version
+        run: |
+          if [[ ! "$RELEASE_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "Version must look like v1.0.0 (optionally with a prerelease suffix)." >&2
+            exit 1
+          fi
+          if git ls-remote --exit-code --tags origin "refs/tags/$RELEASE_VERSION" >/dev/null 2>&1; then
+            echo "Tag $RELEASE_VERSION already exists." >&2
+            exit 1
+          fi
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Select official DSH release
+        id: dsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DSH_OFFSET: ${{ inputs.dsh_offset }}
+        run: python tools/select_dsh_release.py --output "$GITHUB_OUTPUT"
+
+      - name: Verify DSH npm package exists
+        env:
+          DSH_VERSION: ${{ steps.dsh.outputs.version }}
+        run: npm view "@deepseek-ai/dsh@$DSH_VERSION" version
+
+      - name: Prepare release signing key
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          for name in ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD; do
+            if [[ -z "${!name}" ]]; then
+              echo "Missing required repository Actions secret: $name" >&2
+              exit 1
+            fi
+          done
+          mkdir -p .keystore
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > .keystore/release.jks
+          test -s .keystore/release.jks
+
+      - name: Collect arm64 Android runtime
+        env:
+          DSH_VERSION: ${{ steps.dsh.outputs.version }}
+        run: |
+          python tools/collect_runtime.py fetch --arch aarch64 --work .runtime-work
+          npm init -y --prefix .runtime-work/bundle
+          npm install --prefix .runtime-work/bundle \
+            --omit=dev --ignore-scripts --no-audit --no-fund \
+            "@deepseek-ai/dsh@$DSH_VERSION"
+          python tools/collect_runtime.py pack \
+            --arch aarch64 \
+            --work .runtime-work \
+            --out .runtime-work/runtime-aarch64.zip
+          cp .runtime-work/runtime-aarch64.zip app/src/main/assets/runtime.zip
+
+      - name: Run tests, lint, and build signed arm64 APK
+        env:
+          ORG_GRADLE_PROJECT_releaseStoreFile: ${{ github.workspace }}/.keystore/release.jks
+          ORG_GRADLE_PROJECT_releaseStorePassword: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ORG_GRADLE_PROJECT_releaseKeyAlias: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ORG_GRADLE_PROJECT_releaseKeyPassword: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: >-
+          ./gradlew --no-daemon testReleaseUnitTest lintRelease assembleRelease
+          -PappVersionCode=${GITHUB_RUN_NUMBER}
+          -PappVersionName=${RELEASE_VERSION#v}
+          -PruntimeArch=aarch64
+
+      - name: Create draft release with generated notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DSH_VERSION: ${{ steps.dsh.outputs.version }}
+          DSH_RELEASE_TAG: ${{ steps.dsh.outputs.release_tag }}
+          DSH_RELEASE_URL: ${{ steps.dsh.outputs.release_url }}
+        run: |
+          apk="DSH-Pocket-${RELEASE_VERSION}-DSH-${DSH_VERSION}-arm64.apk"
+          notes="$RUNNER_TEMP/release-notes.md"
+          generated_notes="$RUNNER_TEMP/generated-notes.md"
+          cp app/build/outputs/apk/release/app-release.apk "$apk"
+          gh api "repos/$GITHUB_REPOSITORY/releases/generate-notes" \
+            -f tag_name="$RELEASE_VERSION" \
+            -f target_commitish="$GITHUB_SHA" \
+            --jq .body > "$generated_notes"
+          {
+            printf '## Included DSH release\n\n- Version: `v%s`\n- Official release: [%s](%s)\n\n---\n\n' \
+              "$DSH_VERSION" "$DSH_RELEASE_TAG" "$DSH_RELEASE_URL"
+            cat "$generated_notes"
+          } > "$notes"
+          gh release create "$RELEASE_VERSION" "$apk" \
+            --draft \
+            --title "DSH Pocket $RELEASE_VERSION (DSH v$DSH_VERSION)" \
+            --notes-file "$notes"
