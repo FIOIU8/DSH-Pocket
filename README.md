@@ -1,25 +1,31 @@
 # DSH Pocket
 
-**把 DeepSeek Harness 带到 Android 手机上的原生客户端。** DSH Pocket 在设备上启动 Node.js 运行时和 DSH Web 服务，并提供原生 Compose 对话界面及管理入口。
-
 **A native Android client for DeepSeek Harness.** DSH Pocket starts a Node.js runtime and the DSH web service on-device, with a native Compose chat interface and management screens.
 
-> DSH Pocket uses Android `minSdk 24` and deliberately targets API 28 so its bundled runtime can execute from app-private storage. Distribution is currently intended for sideloading, not Google Play.
->
-> DSH Pocket 的最低系统版本为 Android 7.0（API 24）。应用刻意使用 `targetSdk 28`，以便在私有目录运行随包提供的运行时；当前面向侧载分发，不面向 Google Play 上架。
+[简体中文](README.zh-CN.md)
 
-## Features / 功能
+> DSH Pocket requires Android 7.0 (API 24) or later. It deliberately targets API 28 so its bundled runtime can execute from app-private storage. Distribution is currently intended for sideloading, not Google Play.
+
+## Screenshots
+
+| Home | Chat |
+| --- | --- |
+| <img src="screenshots/en_Home.png" width="320" alt="Home screen"> | <img src="screenshots/en_Chat.png" width="320" alt="Chat screen"> |
+
+| Sessions | Plugins |
+| --- | --- |
+| <img src="screenshots/en_Sessions.png" width="320" alt="Sessions screen"> | <img src="screenshots/en_Plugins.png" width="320" alt="Plugins screen"> |
+
+## Features
 
 - Run the DSH Node.js agent engine locally on Android; the engine is managed by a foreground service.
-- 原生对话与 DSH 官方 Web 界面可切换；支持流式回复、会话浏览、归档与恢复。
+- Switch between the native chat interface and the official DSH web interface; supports streaming responses, session browsing, archiving, and restoring.
 - Configure model providers and agent presets, inspect installed plugins, and manage runtime and capability settings.
-- 可选授予所有文件访问权限，让 Agent 在共享存储的 `DSHPocket` 工作区内读写文件；默认使用应用私有工作区。
+- Optionally grant all-files access so the agent can read and write files in the shared `DSHPocket` workspace; the app-private workspace is used by default.
 
 The engine and its web UI communicate over `127.0.0.1`. Prompts and related context may leave the device when sent to the model provider configured by the user. Filesystem access depends on the Android capability granted to the app and the selected workspace.
 
-引擎及其网页界面通过本机回环地址 `127.0.0.1` 通信。发送给用户配置的模型服务时，对话内容及相关上下文可能离开设备。Agent 可访问的文件范围取决于应用获得的 Android 权限和当前工作区。
-
-## Main dependencies / 主要依赖
+## Main dependencies
 
 | Component | Version | License | Source / package repository |
 | --- | --- | --- | --- |
@@ -37,27 +43,19 @@ The engine and its web UI communicate over `127.0.0.1`. Prompts and related cont
 
 Android libraries are resolved through Google Maven (with the Aliyun Google Maven mirror configured first) and Maven Central. Gradle plugins are resolved through Google Maven, Maven Central, and the Gradle Plugin Portal. The Compose BOM manages the versions of Compose artifacts. JUnit and `org.json` are test dependencies, not app runtime libraries.
 
-Android 依赖通过 Google Maven（配置中优先使用阿里云 Google Maven 镜像）和 Maven Central 获取；Gradle 插件还使用 Gradle Plugin Portal。Compose BOM 统一管理 Compose 组件版本。JUnit 与 `org.json` 仅用于测试，不属于应用运行时依赖。
+The Node runtime collector currently downloads these Termux packages: `nodejs-lts`, `libc++`, `openssl`, `c-ares`, `libicu`, `libsqlite`, `zlib`, `resolv-conf`, `ca-certificates`, `ripgrep`, and `pcre2`. Exact license identifiers and npm package versions are listed in [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md). Package versions are resolved from the Termux index at build time. These upstream components retain their own licenses and are not relicensed under this project's MIT license.
 
-The Node runtime collector currently downloads these Termux packages: `nodejs-lts`, `libc++`, `openssl`, `c-ares`, `libicu`, `libsqlite`, `zlib`, `resolv-conf`, `ca-certificates`, `ripgrep`, and `pcre2`. The exact license identifier for every package is in [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md); package versions are resolved from the Termux index at build time. That file also lists the npm package versions, declared licenses, and upstream repositories for the runtime archive.
+## Build
 
-运行时收集脚本会从 Termux 仓库获取上列系统包；具体版本在构建时从仓库索引解析。当前运行时 ZIP 中 npm 包的版本、许可证声明和仓库链接见 [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md)。这些上游组件保留各自许可证，不受本项目 MIT 许可重新授权。
-
-## Build / 构建
-
-### Requirements / 环境
+### Requirements
 
 - Android SDK Platform 37 and Android Build Tools suitable for the configured Android Gradle Plugin.
 - JDK 25, Python 3.12, Node.js 22, and npm. CI uses these versions.
-- `x86_64` or `aarch64` runtime build host target; release workflow currently builds `arm64-v8a` APKs.
+- An `x86_64` or `aarch64` runtime build host target; the release workflow currently builds `arm64-v8a` APKs.
 
-需要 Android SDK Platform 37、JDK 25、Python 3.12、Node.js 22 和 npm。CI 使用上述工具版本；本地运行时支持 `x86_64` 和 `aarch64`，发布工作流目前构建 `arm64-v8a` APK。
-
-### Prepare runtime / 准备运行时
+### Prepare runtime
 
 `app/src/main/assets/runtime.zip` is generated and ignored by Git. Prepare it before invoking Gradle. The following PowerShell commands prepare an x86_64 runtime with the same DSH version used by the push CI build:
-
-`app/src/main/assets/runtime.zip` 由构建生成且不会提交到 Git。运行 Gradle 前需要先准备它。以下 PowerShell 命令会为 x86_64 准备运行时，并使用 push CI 当前固定的 DSH 版本：
 
 ```powershell
 python tools/collect_runtime.py fetch --arch x86_64 --work .runtime-work
@@ -70,13 +68,9 @@ python tools/generate_third_party_notices.py app/src/main/assets/runtime.zip --o
 
 To build arm64 locally, replace `x86_64` with `aarch64` in the runtime commands and use `-PruntimeArch=aarch64` below. To match a release, install the DSH version selected for that release instead of the CI-pinned version, then regenerate the notices file.
 
-如需本地构建 arm64，请将运行时命令中的 `x86_64` 改为 `aarch64`，并在下方构建命令中使用 `-PruntimeArch=aarch64`。如需与某个正式发布版本对应，应安装该发布选中的 DSH 版本并重新生成第三方清单。
-
-### Build APK / 构建 APK
+### Build APK
 
 The local debug signing configuration expects `.keystore/debug.keystore`, which is intentionally ignored by Git. Create the standard Android debug key once in a fresh checkout:
-
-本地 Debug 签名配置使用 Git 忽略的 `.keystore/debug.keystore`。在新检出目录中首次构建前，创建标准 Android Debug 密钥：
 
 ```powershell
 New-Item -ItemType Directory -Force .keystore | Out-Null
@@ -86,10 +80,6 @@ keytool -genkeypair -v -keystore .keystore/debug.keystore -storepass android -al
 
 The debug APK is written to `app/build/outputs/apk/debug/app-debug.apk`. Release APKs are built by the GitHub Actions draft-release workflow and require repository secrets for a persistent signing key. See [`.github/WORKFLOWS.md`](.github/WORKFLOWS.md).
 
-Debug APK 输出到 `app/build/outputs/apk/debug/app-debug.apk`。正式 Release APK 由 GitHub Actions 草稿发布工作流构建，需要配置长期使用的签名密钥 Secrets，详见 [`.github/WORKFLOWS.md`](.github/WORKFLOWS.md)。
+## License
 
-## Licensing / 许可证
-
-The project-owned source code and assets are licensed under the MIT License; see [`LICENSE`](LICENSE). Third-party components bundled in the APK keep their own licenses and notices. In particular, the runtime includes MPL-2.0 components. The runtime archive retains upstream license files where the package provides them; see [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md) for the current inventory and known packaging warnings. The MIT license does not replace or relicense third-party components. The DSH name and other third-party marks are not granted by this project license.
-
-本项目自有源代码和资源采用 MIT 许可证，详见 [`LICENSE`](LICENSE)。APK 中打包的第三方组件仍适用各自许可证和声明；运行时包含 MPL-2.0 组件。运行时归档会保留上游包提供的许可证文件；当前清单及已发现的打包问题见 [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md)。项目 MIT 许可不会替代或重新授权第三方组件。DSH 名称及其他第三方商标也不由本项目许可证授予。
+Project-owned source code and assets are licensed under the MIT License; see [`LICENSE`](LICENSE). Third-party components bundled in the APK keep their own licenses and notices. In particular, the runtime includes MPL-2.0 components. The runtime archive retains upstream license files where the package provides them; see [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md) for the current inventory and known packaging warnings. The MIT license does not replace or relicense third-party components. The DSH name and other third-party marks are not granted by this project license.
