@@ -2,12 +2,22 @@ package com.fioiu8.dshpocket.engine
 
 import android.webkit.CookieManager
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.Response
+import okhttp3.WebSocket
+import okhttp3.WebSocketListener
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedReader
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.UUID
+import java.util.concurrent.TimeUnit
 
 /**
  * Minimal client for the engine's typert RPC gateway (`/api/<namespace>/<method>`).
@@ -19,10 +29,15 @@ import java.net.URL
  * the session cookie [SessionCookie] already minted for the WebView, so the native
  * pages add no auth surface of their own.
  *
- * JSON stays on org.json (already on the platform) to keep the app's zero-third-party
- * runtime dependencies intact.
+ * JSON stays on org.json (already on the platform) so the RPC wire format has no
+ * separate JSON library dependency.
  */
 object EngineApi {
+
+    private val streamClient = OkHttpClient.Builder()
+        .connectTimeout(5, TimeUnit.SECONDS)
+        .readTimeout(0, TimeUnit.MILLISECONDS)
+        .build()
 
     /** One server outcome: `value` is whatever the endpoint returns (object/array/primitive). */
     sealed interface RpcResult {
@@ -114,5 +129,52 @@ object EngineApi {
         is JSONArray -> value
         is JSONObject -> value.optJSONArray("items") ?: JSONArray()
         else -> JSONArray()
+    }
+
+    /** Opens the DSH Remote stream mux and follows durable events plus live assistant chunks. */
+    fun followSession(baseUrl: String, sessionId: String): Flow<JSONObject> = callbackFlow {
+        val channel = this
+        val streamId = UUID.randomUUID().toString()
+        val request = JSONObject()
+            .put("address", JSONObject().put("kind", "session").put("sessionId", sessionId))
+            .put("assistantStream", true)
+            .put("maxMessages", 100)
+        val openFrame = JSONObject()
+            .put("type", "open")
+            .put("streamId", streamId)
+            .put("endpoint", "session/follow")
+            .put("payload", JSONObject().put("args", JSONObject().put("request", request)))
+        val wsUrl = baseUrl.replaceFirst("http://", "ws://").replaceFirst("https://", "wss://") + "/api/remote.mux"
+        val builder = Request.Builder().url(wsUrl)
+        CookieManager.getInstance().getCookie(baseUrl)?.let { builder.header("Cookie", it) }
+        val socket = streamClient.newWebSocket(
+            builder.build(),
+            object : WebSocketListener() {
+                override fun onOpen(webSocket: WebSocket, response: Response) {
+                    if (!webSocket.send(openFrame.toString())) channel.close(IllegalStateException("无法打开会话事件流"))
+                }
+
+                override fun onMessage(webSocket: WebSocket, text: String) {
+                    val frame = runCatching { JSONObject(text) }.getOrNull()
+                    if (frame == null || frame.optString("streamId") != streamId) return
+                    when (frame.optString("type")) {
+                        "item" -> (frame.opt("value") as? JSONObject)?.let { channel.trySend(it) }
+                        "error" -> {
+                            val error = frame.optJSONObject("error")
+                            channel.close(IllegalStateException(error?.optString("message").orEmpty().ifBlank { "会话事件流失败" }))
+                        }
+                        "end" -> channel.close()
+                    }
+                }
+
+                override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                    channel.close(t)
+                }
+            },
+        )
+        awaitClose {
+            socket.send(JSONObject().put("type", "cancel").put("streamId", streamId).toString())
+            socket.close(1000, "screen closed")
+        }
     }
 }

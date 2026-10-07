@@ -32,6 +32,7 @@ import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -73,6 +74,8 @@ import com.fioiu8.dshpocket.engine.EngineState
 import com.fioiu8.dshpocket.ui.theme.DshSpacing
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.collect
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
@@ -100,6 +103,14 @@ data class NativeChatPreferences(
 )
 
 data class NativeChatSession(val id: String, val title: String, val running: Boolean)
+
+data class NativeModelOption(
+    val providerId: String,
+    val providerName: String,
+    val modelId: String,
+    val name: String,
+    val efforts: List<Pair<String, String>>,
+)
 
 data class NativeChatStyle(
     val userBubble: Color,
@@ -142,12 +153,20 @@ fun NativeChatScreen(
     var draft by rememberSaveable { mutableStateOf("") }
     var sending by remember { mutableStateOf(false) }
     var running by remember { mutableStateOf(false) }
+    var liveAssistantText by remember { mutableStateOf("") }
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var showSessions by remember { mutableStateOf(false) }
+    var showModelPicker by remember { mutableStateOf(false) }
+    var pickerModel by remember { mutableStateOf<NativeModelOption?>(null) }
+    var modelOptions by remember { mutableStateOf<List<NativeModelOption>>(emptyList()) }
     var loadedCursor by remember(sessionId) { mutableLongStateOf(-2L) }
     var style by remember(darkTheme) { mutableStateOf(defaultNativeChatStyle(darkTheme)) }
-    val visibleMessages = remember(messages) { messages.filterNot { it.isSystemPrompt || it.role == "suggestions" } }
+    val visibleMessages = remember(messages, liveAssistantText) {
+        (messages + if (liveAssistantText.isBlank()) emptyList() else listOf(
+            NativeChatMessage("live-assistant", "assistant", liveAssistantText, 0L),
+        )).filterNot { it.isSystemPrompt || it.role == "suggestions" }
+    }
     val suggestions = remember(messages) { latestNativeSuggestions(messages) }
 
     suspend fun loadSessions(engine: EngineState.Ready) {
@@ -170,8 +189,18 @@ fun NativeChatScreen(
             EngineApi.requestArgs(JSONObject().put("sessionId", id)),
             engine.token,
         )
-        val projection = (projectionResult as? RpcResult.Ok)?.value as? JSONObject
-        val cursor = projection?.optLong("asOfSeq", -1L) ?: -1L
+        val projection = when (projectionResult) {
+            is RpcResult.Err -> {
+                error = "读取会话状态失败：${projectionResult.message}"
+                return
+            }
+            is RpcResult.Ok -> projectionResult.value as? JSONObject
+        }
+        val cursor = projection?.optLong("asOfSeq", Long.MIN_VALUE) ?: Long.MIN_VALUE
+        if (cursor == Long.MIN_VALUE) {
+            error = "读取会话状态失败：响应缺少有效游标"
+            return
+        }
         running = sessions.firstOrNull { it.id == id }?.running ?: false
         if (cursor == loadedCursor) return
         val pageResult = chatRpc(
@@ -188,7 +217,12 @@ fun NativeChatScreen(
         when (pageResult) {
             is RpcResult.Ok -> {
                 val page = pageResult.value as? JSONObject
-                val parsed = parseNativeChatMessages(page?.optJSONArray("records") ?: JSONArray())
+                val records = page?.optJSONArray("records")
+                if (records == null) {
+                    error = "读取会话失败：响应缺少消息记录"
+                    return
+                }
+                val parsed = parseNativeChatMessages(records)
                 messages = parsed
                 loadedCursor = cursor
                 error = null
@@ -199,6 +233,8 @@ fun NativeChatScreen(
 
     LaunchedEffect(ready) {
         val engine = ready ?: return@LaunchedEffect
+        val catalog = chatRpc(engine.baseUrl, "session/modelCatalog", EngineApi.emptyArgs(), engine.token)
+        if (catalog is RpcResult.Ok) modelOptions = parseNativeModelCatalog(catalog.value as? JSONObject)
         val themeResult = chatRpc(engine.baseUrl, "dshPocketUi/getNativeChatTheme", EngineApi.emptyArgs(), engine.token)
         if (themeResult is RpcResult.Ok) {
             val raw = themeResult.value as? JSONObject
@@ -215,12 +251,59 @@ fun NativeChatScreen(
         loading = true
         refreshMessages(engine, id)
         loading = false
-        var poll = 0
-        while (true) {
-            delay(1_500)
-            poll += 1
-            if (poll % 5 == 0) loadSessions(engine)
-            refreshMessages(engine, id)
+        liveAssistantText = ""
+        coroutineScope {
+            launch {
+                var poll = 0
+                while (true) {
+                    delay(1_500)
+                    poll++
+                    if (poll % 5 == 0) loadSessions(engine)
+                    refreshMessages(engine, id)
+                }
+            }
+            runCatching {
+                EngineApi.followSession(engine.baseUrl, id).collect { frame ->
+                    when (frame.optString("type")) {
+                        "snapshot" -> {
+                            messages = parseNativeChatMessages(frame.optJSONArray("records") ?: JSONArray())
+                            loadedCursor = frame.optLong("cursor", -1L)
+                            liveAssistantText = assistantStreamSnapshotText(
+                                frame.optJSONObject("assistantStream")?.optJSONObject("activeAttempt")?.optJSONArray("stream"),
+                            )
+                        }
+                        "event" -> {
+                            val eventRecord = JSONObject().put("event", frame.optJSONObject("event") ?: JSONObject())
+                            val incoming = parseNativeChatMessages(JSONArray().put(eventRecord))
+                            if (incoming.isNotEmpty()) {
+                                if (incoming.any { it.role == "assistant" }) liveAssistantText = ""
+                                messages = (messages + incoming).distinctBy { it.id }
+                            }
+                        }
+                        "assistant-stream" -> {
+                            val streamFrame = frame.optJSONObject("frame") ?: return@collect
+                            when (streamFrame.optString("type")) {
+                                "start" -> liveAssistantText = ""
+                                "chunk" -> {
+                                    val chunk = streamFrame.optJSONObject("chunk") ?: return@collect
+                                    if (chunk.optString("type") == "text-delta") {
+                                        liveAssistantText += chunk.optString("text")
+                                    }
+                                }
+                                "end" -> {
+                                    refreshMessages(engine, id)
+                                    liveAssistantText = ""
+                                    loadSessions(engine)
+                                }
+                            }
+                        }
+                    }
+                }
+            }.onFailure { failure ->
+                if (failure !is kotlinx.coroutines.CancellationException) {
+                    error = "实时连接中断，正在使用轮询更新：${failure.message.orEmpty()}"
+                }
+            }
         }
     }
 
@@ -235,6 +318,12 @@ fun NativeChatScreen(
                 onMenu = onMenu,
                 subtitle = "本地助手 · DSHPocket",
                 actions = {
+                    IconButton(
+                        onClick = { showModelPicker = true; pickerModel = null },
+                        modifier = Modifier.size(DshSpacing.touchTarget),
+                    ) {
+                        Icon(Icons.Filled.Tune, contentDescription = "选择模型和推理强度", modifier = Modifier.size(DshSpacing.icon))
+                    }
                     IconButton(onClick = { showSessions = true }, modifier = Modifier.size(DshSpacing.touchTarget)) {
                         Icon(Icons.Filled.Chat, contentDescription = "选择会话", modifier = Modifier.size(DshSpacing.icon))
                     }
@@ -476,6 +565,72 @@ fun NativeChatScreen(
             confirmButton = { TextButton(onClick = { showSessions = false }) { Text("关闭") } },
         )
     }
+
+    if (showModelPicker) {
+        AlertDialog(
+            onDismissRequest = { showModelPicker = false; pickerModel = null },
+            title = { Text(if (pickerModel == null) "选择模型" else "${pickerModel?.name} · 推理强度") },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    if (pickerModel == null) {
+                        modelOptions.forEach { option ->
+                            TextButton(onClick = { pickerModel = option }, modifier = Modifier.fillMaxWidth()) {
+                                Column(Modifier.fillMaxWidth()) {
+                                    Text(option.name)
+                                    Text("${option.providerName} · ${option.modelId}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
+                        }
+                        if (modelOptions.isEmpty()) Text("没有可用模型，请先在模型配置中添加服务。")
+                    } else {
+                        TextButton(onClick = { pickerModel = null }, modifier = Modifier.fillMaxWidth()) { Text("返回模型列表") }
+                        val option = pickerModel!!
+                        val efforts = option.efforts.ifEmpty { listOf("default" to "服务默认") }
+                        efforts.forEach { (effortId, effortName) ->
+                            TextButton(
+                                onClick = {
+                                    val engine = ready
+                                    if (engine != null) scope.launch {
+                                        var targetId = sessionId
+                                        if (targetId == null) {
+                                            val created = chatRpc(
+                                                engine.baseUrl,
+                                                "session/create",
+                                                EngineApi.requestArgs(JSONObject().put("cwd", EnginePaths.workspace(context).absolutePath)),
+                                                engine.token,
+                                            )
+                                            targetId = ((created as? RpcResult.Ok)?.value as? JSONObject)?.optString("sessionId")
+                                                ?.takeIf(String::isNotBlank)
+                                            if (targetId == null) {
+                                                error = (created as? RpcResult.Err)?.message ?: "创建会话失败"
+                                                return@launch
+                                            }
+                                            sessionId = targetId
+                                        }
+                                        val request = JSONObject()
+                                            .put("sessionId", targetId)
+                                            .put("provider", option.providerId)
+                                            .put("model", option.modelId)
+                                            .apply { if (effortId != "default") put("reasoningEffort", effortId) }
+                                        when (val result = chatRpc(engine.baseUrl, "session/selectModel", EngineApi.requestArgs(request), engine.token)) {
+                                            is RpcResult.Err -> error = "切换模型失败：${result.message}"
+                                            is RpcResult.Ok -> {
+                                                error = null
+                                                showModelPicker = false
+                                                pickerModel = null
+                                            }
+                                        }
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                            ) { Text(effortName) }
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { showModelPicker = false; pickerModel = null }) { Text("关闭") } },
+        )
+    }
 }
 
 private fun validClientTimeZone(): String {
@@ -523,8 +678,8 @@ private fun NativeMessageBubble(
                     modifier = Modifier.widthIn(max = 340.dp).wrapContentWidth(),
                 ) {
                     SelectionContainer {
-                        Text(
-                            message.text,
+                        MarkdownText(
+                            markdown = message.text,
                             modifier = Modifier.padding(horizontal = 18.dp, vertical = 13.dp),
                             fontSize = (MaterialTheme.typography.bodyLarge.fontSize.value * style.fontScale).sp,
                             lineHeight = (26f * style.fontScale).sp,
@@ -534,8 +689,8 @@ private fun NativeMessageBubble(
                 }
             } else {
                 SelectionContainer {
-                    Text(
-                        message.text,
+                    MarkdownText(
+                        markdown = message.text,
                         modifier = Modifier.fillMaxWidth(),
                         fontSize = (MaterialTheme.typography.bodyLarge.fontSize.value * style.fontScale).sp,
                         lineHeight = (27f * style.fontScale).sp,
@@ -716,6 +871,53 @@ internal fun parseNativeChatSessions(items: JSONArray): List<NativeChatSession> 
     }
 }
 
+internal fun parseNativeModelCatalog(catalog: JSONObject?): List<NativeModelOption> = buildList {
+    val groups = catalog?.optJSONArray("groups") ?: return@buildList
+    for (groupIndex in 0 until groups.length()) {
+        val group = groups.optJSONObject(groupIndex) ?: continue
+        val models = group.optJSONArray("models") ?: continue
+        for (modelIndex in 0 until models.length()) {
+            val model = models.optJSONObject(modelIndex) ?: continue
+            val modelId = model.optString("id").takeIf(String::isNotBlank) ?: continue
+            val effortValues = model.optJSONObject("reasoning")?.optJSONArray("efforts")
+            val efforts = buildList {
+                add("default" to "模型默认")
+                if (effortValues != null) for (effortIndex in 0 until effortValues.length()) {
+                    val effort = effortValues.optJSONObject(effortIndex) ?: continue
+                    val id = effort.optString("id").takeIf(String::isNotBlank) ?: continue
+                    add(id to effort.optString("name").ifBlank { id })
+                }
+            }
+            add(
+                NativeModelOption(
+                    group.optString("id"),
+                    group.optString("name").ifBlank { group.optString("id") },
+                    modelId,
+                    model.optString("name").ifBlank { modelId },
+                    efforts,
+                ),
+            )
+        }
+    }
+}
+
+internal fun assistantStreamSnapshotText(stream: JSONArray?): String = buildString {
+    if (stream == null) return@buildString
+    for (index in 0 until stream.length()) {
+        val record = stream.optJSONObject(index) ?: continue
+        when (record.optString("type")) {
+            "text-chunks" -> {
+                val chunks = record.optJSONArray("texts") ?: continue
+                for (chunkIndex in 0 until chunks.length()) append(chunks.optString(chunkIndex))
+            }
+            "chunk" -> {
+                val chunk = record.optJSONObject("chunk") ?: continue
+                if (chunk.optString("type") == "text-delta") append(chunk.optString("text"))
+            }
+        }
+    }
+}
+
 internal fun parseNativeChatMessages(records: JSONArray): List<NativeChatMessage> = buildList {
     for (index in 0 until records.length()) {
         val event = records.optJSONObject(index)?.optJSONObject("event") ?: continue
@@ -747,13 +949,19 @@ internal fun parseNativeChatMessages(records: JSONArray): List<NativeChatMessage
         val message = when (type) {
             "user/message" -> data
             "system/message" -> data.optJSONObject("message") ?: data
+            "developer/message" -> data.optJSONObject("message") ?: data
             "assistant/message" -> data.optJSONObject("message")
             else -> null
         } ?: continue
         val text = contentText(message.optJSONArray("content"))
+            .ifBlank { message.optString("text").takeIf { it != "null" }.orEmpty() }
         if (text.isBlank()) continue
-        val isSystemPrompt = type == "system/message" || isNativeSystemPrompt(text)
-        val role = if (type == "assistant/message") "assistant" else if (isSystemPrompt) "system" else "user"
+        val isSystemPrompt = type == "system/message" || type == "developer/message" || isNativeSystemPrompt(text)
+        val role = when {
+            type == "assistant/message" -> "assistant"
+            type == "user/message" && !isSystemPrompt -> "user"
+            else -> "system"
+        }
         val usage = listOfNotNull(
             data.optJSONObject("usage"),
             data.optJSONObject("tokenUsage"),
