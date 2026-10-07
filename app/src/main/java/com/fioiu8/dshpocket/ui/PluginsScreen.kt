@@ -26,6 +26,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.fioiu8.dshpocket.engine.EngineApi
@@ -55,6 +56,7 @@ data class PluginRow(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PluginsScreen(state: EngineState, onMenu: () -> Unit) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     val ready = state as? EngineState.Ready
     var rows by remember { mutableStateOf<List<PluginRow>?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -65,7 +67,7 @@ fun PluginsScreen(state: EngineState, onMenu: () -> Unit) {
     LaunchedEffect(state) {
         while (true) {
             if (state is EngineState.Ready) {
-                load(state.baseUrl, state.token,
+                load(state.baseUrl, state.token, context.resources.configuration.locales[0].toLanguageTag(),
                     onLoaded = { rows = it; error = null },
                     onFailed = { error = it },
                 )
@@ -79,7 +81,7 @@ fun PluginsScreen(state: EngineState, onMenu: () -> Unit) {
         if (s != null) {
             refreshing = true
             scope.launch {
-                load(s.baseUrl, s.token,
+                load(s.baseUrl, s.token, context.resources.configuration.locales[0].toLanguageTag(),
                     onLoaded = { rows = it; error = null },
                     onFailed = { error = it },
                 )
@@ -107,20 +109,20 @@ fun PluginsScreen(state: EngineState, onMenu: () -> Unit) {
     }
 
     Scaffold(
-        topBar = { DshTopAppBar(title = "插件管理", onMenu = onMenu) },
+        topBar = { DshTopAppBar(title = stringResource(com.fioiu8.dshpocket.R.string.nav_plugins), onMenu = onMenu) },
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             val visible = rows
             when {
                 state !is EngineState.Ready -> CenteredMessage(
-                    title = "引擎未就绪",
-                    body = (state as? EngineState.Busy)?.message ?: "启动引擎后即可管理插件。",
+                    title = stringResource(com.fioiu8.dshpocket.R.string.engine_not_ready),
+                    body = (state as? EngineState.Busy)?.message ?: stringResource(com.fioiu8.dshpocket.R.string.engine_start_to_manage_plugins),
                     busy = state is EngineState.Busy,
                 )
 
-                error != null && visible == null -> CenteredMessage("插件列表加载失败", "$error", busy = false)
-                visible == null -> CenteredMessage("加载中", "", busy = true)
-                visible.isEmpty() -> CenteredMessage("没有可管理的插件", "", busy = false)
+                error != null && visible == null -> CenteredMessage(stringResource(com.fioiu8.dshpocket.R.string.plugins_load_failed), "$error", busy = false)
+                visible == null -> CenteredMessage(stringResource(com.fioiu8.dshpocket.R.string.loading), "", busy = true)
+                visible.isEmpty() -> CenteredMessage(stringResource(com.fioiu8.dshpocket.R.string.plugins_empty), "", busy = false)
 
                 else -> {
                     PullToRefreshBox(
@@ -133,7 +135,7 @@ fun PluginsScreen(state: EngineState, onMenu: () -> Unit) {
                                 .fillMaxSize()
                                 .verticalScroll(rememberScrollState()),
                         ) {
-                            SectionHeader("已安装插件")
+                            SectionHeader(stringResource(com.fioiu8.dshpocket.R.string.plugins_installed))
                             GroupedList(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -149,8 +151,7 @@ fun PluginsScreen(state: EngineState, onMenu: () -> Unit) {
                                 },
                             )
                             Text(
-                                text = "安装与卸载需要联网拉取插件包，将在后续版本接入；" +
-                                    "当前可在此启停已随包安装的插件，改动即时生效。",
+                                text = stringResource(com.fioiu8.dshpocket.R.string.plugins_note),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                  modifier = Modifier.padding(DshSpacing.page),
@@ -166,22 +167,23 @@ fun PluginsScreen(state: EngineState, onMenu: () -> Unit) {
 private suspend fun load(
     baseUrl: String,
     token: String,
+    localeTag: String,
     onLoaded: (List<PluginRow>) -> Unit,
     onFailed: (String) -> Unit,
 ) {
     val result = EngineApi.rpc(baseUrl, "pluginManager/listPlugins", EngineApi.emptyArgs(), token)
     when (result) {
-        is RpcResult.Ok -> onLoaded(parseRows(EngineApi.itemsOf(result.value)))
+        is RpcResult.Ok -> onLoaded(parseRows(EngineApi.itemsOf(result.value), localeTag))
         is RpcResult.Err -> onFailed("${result.code}: ${result.message}")
     }
 }
 
-private fun parseRows(items: org.json.JSONArray): List<PluginRow> = buildList {
+private fun parseRows(items: org.json.JSONArray, localeTag: String = "zh-CN"): List<PluginRow> = buildList {
     for (i in 0 until items.length()) {
         val item = items.optJSONObject(i) ?: continue
         val meta = item.optJSONObject("meta")
-        val title = localized(meta?.opt("title")) ?: item.optString("moduleName").substringAfterLast('/')
-        val description = localized(meta?.opt("description")).orEmpty()
+        val title = localized(meta?.opt("title"), localeTag) ?: item.optString("moduleName").substringAfterLast('/')
+        val description = localized(meta?.opt("description"), localeTag).orEmpty()
         add(
             PluginRow(
                 id = item.optString("entryId"),
@@ -196,13 +198,18 @@ private fun parseRows(items: org.json.JSONArray): List<PluginRow> = buildList {
 }.sortedBy { it.title.lowercase() }
 
 /** LocalizedText 可能是字符串，也可能是按语言键的对象；宽松解析。 */
-private fun localized(value: Any?): String? = when (value) {
+internal fun localized(value: Any?, localeTag: String = "zh-CN"): String? = when (value) {
     null -> null
     is String -> value.takeIf { it.isNotBlank() }
     is JSONObject -> {
         val zh = value.optString("zh-CN").ifBlank { value.optString("zh") }
         val en = value.optString("en")
-        (zh.ifBlank { en }).takeIf { it.isNotBlank() }
+        val preferred = when {
+            localeTag.lowercase().startsWith("zh") -> zh
+            localeTag.lowercase().startsWith("en") -> en
+            else -> ""
+        }
+        (preferred.ifBlank { zh }.ifBlank { en }).takeIf { it.isNotBlank() }
     }
 
     else -> value.toString().takeIf { it.isNotBlank() && it != "null" }
@@ -215,7 +222,7 @@ private fun PluginRowItem(row: PluginRow, busy: Boolean, onToggle: (Boolean) -> 
         supportingContent = {
             val subtitle = row.description.ifBlank { row.moduleName }
             Text(
-                if (row.readOnlyReason != null) "$subtitle · 只读（${row.readOnlyReason}）" else subtitle,
+                if (row.readOnlyReason != null) stringResource(com.fioiu8.dshpocket.R.string.plugins_read_only, subtitle, row.readOnlyReason) else subtitle,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )

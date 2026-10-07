@@ -87,6 +87,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.annotation.StringRes
+import androidx.compose.ui.res.stringResource
 import com.fioiu8.dshpocket.capability.Capabilities
 import com.fioiu8.dshpocket.capability.CapabilitySnapshot
 import com.fioiu8.dshpocket.engine.EngineController
@@ -108,13 +110,13 @@ import kotlinx.coroutines.withContext
 /**
  * 导航目标（设计稿抽屉：m3e-canvas.json 的 drawer_* 六项）。
  */
-enum class Destination(val label: String, val icon: ImageVector) {
-    Home("首页", Icons.Filled.Home),
-    Chat("对话", Icons.Filled.Forum),
-    Sessions("会话管理", Icons.Filled.Folder),
-    Plugins("插件管理", Icons.Filled.Extension),
-    Models("模型配置", Icons.Filled.Tune),
-    Settings("设置", Icons.Filled.Settings),
+enum class Destination(@StringRes val labelRes: Int, val icon: ImageVector) {
+    Home(com.fioiu8.dshpocket.R.string.nav_home, Icons.Filled.Home),
+    Chat(com.fioiu8.dshpocket.R.string.nav_chat, Icons.Filled.Forum),
+    Sessions(com.fioiu8.dshpocket.R.string.nav_sessions, Icons.Filled.Folder),
+    Plugins(com.fioiu8.dshpocket.R.string.nav_plugins, Icons.Filled.Extension),
+    Models(com.fioiu8.dshpocket.R.string.nav_models, Icons.Filled.Tune),
+    Settings(com.fioiu8.dshpocket.R.string.nav_settings, Icons.Filled.Settings),
 }
 
 /** Read one coherent capability view for UI and generated agent context. */
@@ -142,7 +144,11 @@ private fun saveNativeChatPreferences(context: android.content.Context, preferen
 }
 
 @Composable
-fun AppShell(controller: EngineController) {
+fun AppShell(
+    controller: EngineController,
+    language: AppLanguage,
+    onLanguageChange: (AppLanguage) -> Unit,
+) {
     val context = LocalContext.current
     val state by controller.state.collectAsState()
     val log by controller.log.collectAsState()
@@ -246,7 +252,7 @@ fun AppShell(controller: EngineController) {
                         wv.loadUrl("${s.baseUrl}/?token=${s.token}")
                     } else {
                         webLoading = false
-                        webLoadError = "页面没有返回内容"
+                        webLoadError = context.getString(com.fioiu8.dshpocket.R.string.chat_empty_response)
                         Log.e("DshWebView", "SPA remains empty after reload")
                     }
                 } else {
@@ -347,7 +353,7 @@ fun AppShell(controller: EngineController) {
                                         view.loadUrl("${readyState?.baseUrl ?: ""}/?token=${readyState?.token ?: ""}")
                                     } else if (height < 1f) {
                                         webLoading = false
-                                        webLoadError = "页面没有返回内容"
+                                        webLoadError = context.getString(com.fioiu8.dshpocket.R.string.chat_empty_response)
                                         Log.e("DshWebView", "page finished with empty body after retry")
                                     } else {
                                         webLoading = false
@@ -413,6 +419,8 @@ fun AppShell(controller: EngineController) {
                             controller.stop()
                             EngineService.stop(context)
                         },
+                            language = language,
+                            onLanguageChange = onLanguageChange,
                     )
                 }
             }
@@ -456,7 +464,7 @@ private fun NavigationDrawerItemLabel(dest: Destination, selected: Boolean, onCl
         }
         Spacer(Modifier.size(12.dp))
         Text(
-            dest.label,
+            stringResource(dest.labelRes),
         style = MaterialTheme.typography.bodyLarge,
         color = if (selected) colors.onSurface else colors.onSurfaceVariant,
         )
@@ -486,7 +494,10 @@ fun DshTopAppBar(
             ) {
                 Icon(
                     imageVector = if (onBack == null) Icons.Filled.Menu else Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = if (onBack == null) "打开导航抽屉" else "返回设置",
+                    contentDescription = stringResource(
+                        if (onBack == null) com.fioiu8.dshpocket.R.string.open_navigation_drawer
+                        else com.fioiu8.dshpocket.R.string.back_to_settings,
+                    ),
                 )
             }
         },
@@ -521,7 +532,7 @@ private fun ChatScreen(
     onPageError: (String) -> Unit,
 ) {
     androidx.compose.material3.Scaffold(
-        topBar = { DshTopAppBar(title = "对话", onMenu = onMenu) },
+        topBar = { DshTopAppBar(title = stringResource(com.fioiu8.dshpocket.R.string.nav_chat), onMenu = onMenu) },
     ) { padding ->
         when (state) {
             is EngineState.Ready -> Box(
@@ -617,8 +628,8 @@ private fun ChatScreen(
                         color = MaterialTheme.colorScheme.background,
                     ) {
                         CenteredMessage(
-                            title = "界面加载失败",
-                            body = "$loadError\n请到首页「本地核心」卡重启引擎后重试。",
+                            title = stringResource(com.fioiu8.dshpocket.R.string.chat_load_failed),
+                            body = stringResource(com.fioiu8.dshpocket.R.string.chat_retry_hint) + "\n" + loadError,
                             busy = false,
                         )
                     }
@@ -627,8 +638,8 @@ private fun ChatScreen(
                         color = MaterialTheme.colorScheme.background,
                     ) {
                         CenteredMessage(
-                            title = "正在加载对话",
-                            body = "正在连接本地引擎…",
+                            title = stringResource(com.fioiu8.dshpocket.R.string.chat_loading),
+                            body = stringResource(com.fioiu8.dshpocket.R.string.chat_connecting),
                             busy = true,
                         )
                     }
@@ -636,14 +647,14 @@ private fun ChatScreen(
             }
 
             is EngineState.Failed -> CenteredMessage(
-                title = "引擎未能启动",
+                title = stringResource(com.fioiu8.dshpocket.R.string.engine_failed_to_start),
                 body = state.message,
                 busy = false,
             )
 
             else -> CenteredMessage(
-                title = "正在启动引擎",
-                body = (state as? EngineState.Busy)?.message ?: "准备中…",
+                title = stringResource(com.fioiu8.dshpocket.R.string.engine_starting),
+                body = (state as? EngineState.Busy)?.message ?: stringResource(com.fioiu8.dshpocket.R.string.engine_preparing),
                 busy = true,
             )
         }

@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -66,6 +67,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.isSystemInDarkTheme
 import com.fioiu8.dshpocket.engine.EngineApi
 import com.fioiu8.dshpocket.engine.EngineApi.RpcResult
@@ -119,9 +121,9 @@ data class NativeChatStyle(
     val fontScale: Float,
 )
 
-enum class ChatPresentation(val key: String, val label: String) {
-    Web("web", "网页对话"),
-    Native("native", "原生对话"),
+enum class ChatPresentation(val key: String, val labelRes: Int) {
+    Web("web", com.fioiu8.dshpocket.R.string.native_web_chat),
+    Native("native", com.fioiu8.dshpocket.R.string.native_native_chat),
     ;
 
     companion object {
@@ -191,14 +193,14 @@ fun NativeChatScreen(
         )
         val projection = when (projectionResult) {
             is RpcResult.Err -> {
-                error = "读取会话状态失败：${projectionResult.message}"
+                error = context.getString(com.fioiu8.dshpocket.R.string.native_session_load_failed) + ": ${projectionResult.message}"
                 return
             }
             is RpcResult.Ok -> projectionResult.value as? JSONObject
         }
         val cursor = projection?.optLong("asOfSeq", Long.MIN_VALUE) ?: Long.MIN_VALUE
         if (cursor == Long.MIN_VALUE) {
-            error = "读取会话状态失败：响应缺少有效游标"
+            error = context.getString(com.fioiu8.dshpocket.R.string.native_session_load_failed) + ": response cursor missing"
             return
         }
         running = sessions.firstOrNull { it.id == id }?.running ?: false
@@ -219,7 +221,7 @@ fun NativeChatScreen(
                 val page = pageResult.value as? JSONObject
                 val records = page?.optJSONArray("records")
                 if (records == null) {
-                    error = "读取会话失败：响应缺少消息记录"
+                    error = context.getString(com.fioiu8.dshpocket.R.string.native_session_load_failed) + ": message records missing"
                     return
                 }
                 val parsed = parseNativeChatMessages(records)
@@ -227,14 +229,17 @@ fun NativeChatScreen(
                 loadedCursor = cursor
                 error = null
             }
-            is RpcResult.Err -> error = "读取会话失败：${pageResult.message}"
+            is RpcResult.Err -> error = context.getString(com.fioiu8.dshpocket.R.string.native_session_load_failed) + ": ${pageResult.message}"
         }
     }
 
     LaunchedEffect(ready) {
         val engine = ready ?: return@LaunchedEffect
         val catalog = chatRpc(engine.baseUrl, "session/modelCatalog", EngineApi.emptyArgs(), engine.token)
-        if (catalog is RpcResult.Ok) modelOptions = parseNativeModelCatalog(catalog.value as? JSONObject)
+        if (catalog is RpcResult.Ok) modelOptions = parseNativeModelCatalog(
+            catalog.value as? JSONObject,
+            context.getString(com.fioiu8.dshpocket.R.string.native_effort_default),
+        )
         val themeResult = chatRpc(engine.baseUrl, "dshPocketUi/getNativeChatTheme", EngineApi.emptyArgs(), engine.token)
         if (themeResult is RpcResult.Ok) {
             val raw = themeResult.value as? JSONObject
@@ -301,7 +306,7 @@ fun NativeChatScreen(
                 }
             }.onFailure { failure ->
                 if (failure !is kotlinx.coroutines.CancellationException) {
-                    error = "实时连接中断，正在使用轮询更新：${failure.message.orEmpty()}"
+                    error = "${context.getString(com.fioiu8.dshpocket.R.string.native_session_load_failed)}: ${failure.message.orEmpty()}"
                 }
             }
         }
@@ -314,24 +319,24 @@ fun NativeChatScreen(
     Scaffold(
         topBar = {
             DshTopAppBar(
-                title = sessions.firstOrNull { it.id == sessionId }?.title ?: "新对话",
+                title = sessions.firstOrNull { it.id == sessionId }?.title ?: stringResource(com.fioiu8.dshpocket.R.string.native_new_chat),
                 onMenu = onMenu,
-                subtitle = "本地助手 · DSHPocket",
+                subtitle = stringResource(com.fioiu8.dshpocket.R.string.native_subtitle),
                 actions = {
                     IconButton(
                         onClick = { showModelPicker = true; pickerModel = null },
                         modifier = Modifier.size(DshSpacing.touchTarget),
                     ) {
-                        Icon(Icons.Filled.Tune, contentDescription = "选择模型和推理强度", modifier = Modifier.size(DshSpacing.icon))
+                        Icon(Icons.Filled.Tune, contentDescription = stringResource(com.fioiu8.dshpocket.R.string.native_select_model_effort), modifier = Modifier.size(DshSpacing.icon))
                     }
                     IconButton(onClick = { showSessions = true }, modifier = Modifier.size(DshSpacing.touchTarget)) {
-                        Icon(Icons.Filled.Chat, contentDescription = "选择会话", modifier = Modifier.size(DshSpacing.icon))
+                        Icon(Icons.Filled.Chat, contentDescription = stringResource(com.fioiu8.dshpocket.R.string.native_select_session), modifier = Modifier.size(DshSpacing.icon))
                     }
                     IconButton(
                         onClick = { sessionId = null; messages = emptyList(); error = null },
                         modifier = Modifier.size(DshSpacing.touchTarget),
                     ) {
-                        Icon(Icons.Filled.Add, contentDescription = "新建会话", modifier = Modifier.size(DshSpacing.icon))
+                        Icon(Icons.Filled.Add, contentDescription = stringResource(com.fioiu8.dshpocket.R.string.native_new_chat), modifier = Modifier.size(DshSpacing.icon))
                     }
                 },
             )
@@ -345,26 +350,26 @@ fun NativeChatScreen(
         ) {
             when {
                 ready == null -> CenteredMessage(
-                    title = if (state is EngineState.Failed) "引擎未能启动" else "正在启动引擎",
+                    title = if (state is EngineState.Failed) stringResource(com.fioiu8.dshpocket.R.string.engine_failed_to_start) else stringResource(com.fioiu8.dshpocket.R.string.engine_starting),
                     body = when (state) {
                         is EngineState.Failed -> state.message
                         is EngineState.Busy -> state.message
-                        else -> "准备中…"
+                        else -> stringResource(com.fioiu8.dshpocket.R.string.engine_preparing)
                     },
                     busy = state !is EngineState.Failed,
                 )
                 else -> {
                     if (error != null && visibleMessages.isEmpty()) {
                         Box(Modifier.weight(1f).fillMaxWidth()) {
-                            CenteredMessage("会话加载失败", error.orEmpty(), busy = false)
+                            CenteredMessage(stringResource(com.fioiu8.dshpocket.R.string.native_session_load_failed), error.orEmpty(), busy = false)
                         }
                     } else if (loading && visibleMessages.isEmpty()) {
                         Box(Modifier.weight(1f).fillMaxWidth()) {
-                            CenteredMessage("正在加载会话", "", busy = true)
+                            CenteredMessage(stringResource(com.fioiu8.dshpocket.R.string.native_sessions_loading), "", busy = true)
                         }
                     } else if (sessionId == null) {
                         Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                            Text("发送第一条消息，开始新会话", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(stringResource(com.fioiu8.dshpocket.R.string.native_start_message), color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     } else {
                         if (error != null) {
@@ -425,7 +430,7 @@ fun NativeChatScreen(
                                                             ),
                                                             engine.token,
                                                         )
-                                                        if (result is RpcResult.Err) error = "辅助回答失败：${result.message}"
+                                                        if (result is RpcResult.Err) error = "${context.getString(com.fioiu8.dshpocket.R.string.native_assist_failed)}: ${result.message}"
                                                         loadSessions(engine)
                                                         refreshMessages(engine, id)
                                                         sending = false
@@ -443,7 +448,7 @@ fun NativeChatScreen(
                                         modifier = Modifier.padding(vertical = 8.dp),
                                     ) {
                                         CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-                                        Text("正在思考…", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Text(stringResource(com.fioiu8.dshpocket.R.string.native_thinking), color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
                                 }
                             }
@@ -468,7 +473,7 @@ fun NativeChatScreen(
                                         EngineApi.requestArgs(JSONObject().put("sessionId", id)),
                                         engine.token,
                                     )
-                                    if (result is RpcResult.Err) error = "停止失败：${result.message}"
+                                    if (result is RpcResult.Err) error = "${context.getString(com.fioiu8.dshpocket.R.string.native_stop_failed)}: ${result.message}"
                                     loadSessions(engine)
                                     refreshMessages(engine, id)
                                 }
@@ -495,7 +500,7 @@ fun NativeChatScreen(
                                         targetId = (((create as? RpcResult.Ok)?.value as? JSONObject)
                                             ?.optString("sessionId"))?.takeIf { it.isNotBlank() }
                                         if (targetId == null) {
-                                            error = (create as? RpcResult.Err)?.message ?: "创建会话失败"
+                                            error = (create as? RpcResult.Err)?.message ?: context.getString(com.fioiu8.dshpocket.R.string.native_create_session_failed)
                                             draft = text
                                             sending = false
                                             return@launch
@@ -521,7 +526,7 @@ fun NativeChatScreen(
                                             refreshMessages(engine, targetId)
                                         }
                                         is RpcResult.Err -> {
-                                            error = "发送失败：${result.message}"
+                                            error = "${context.getString(com.fioiu8.dshpocket.R.string.native_send_failed)}: ${result.message}"
                                             draft = text
                                         }
                                     }
@@ -538,7 +543,7 @@ fun NativeChatScreen(
     if (showSessions) {
         AlertDialog(
             onDismissRequest = { showSessions = false },
-            title = { Text("选择会话") },
+            title = { Text(stringResource(com.fioiu8.dshpocket.R.string.native_select_session)) },
             text = {
                 Column {
                     sessions.forEach { session ->
@@ -559,17 +564,17 @@ fun NativeChatScreen(
                             )
                         }
                     }
-                    if (sessions.isEmpty()) Text("还没有其他会话")
+                    if (sessions.isEmpty()) Text(stringResource(com.fioiu8.dshpocket.R.string.native_no_other_sessions))
                 }
             },
-            confirmButton = { TextButton(onClick = { showSessions = false }) { Text("关闭") } },
+            confirmButton = { TextButton(onClick = { showSessions = false }) { Text(stringResource(com.fioiu8.dshpocket.R.string.close)) } },
         )
     }
 
     if (showModelPicker) {
         AlertDialog(
             onDismissRequest = { showModelPicker = false; pickerModel = null },
-            title = { Text(if (pickerModel == null) "选择模型" else "${pickerModel?.name} · 推理强度") },
+            title = { Text(if (pickerModel == null) stringResource(com.fioiu8.dshpocket.R.string.native_select_model) else "${pickerModel?.name} · ${stringResource(com.fioiu8.dshpocket.R.string.native_select_model_effort)}") },
             text = {
                 Column(Modifier.verticalScroll(rememberScrollState())) {
                     if (pickerModel == null) {
@@ -581,11 +586,11 @@ fun NativeChatScreen(
                                 }
                             }
                         }
-                        if (modelOptions.isEmpty()) Text("没有可用模型，请先在模型配置中添加服务。")
+                        if (modelOptions.isEmpty()) Text(stringResource(com.fioiu8.dshpocket.R.string.native_no_models))
                     } else {
-                        TextButton(onClick = { pickerModel = null }, modifier = Modifier.fillMaxWidth()) { Text("返回模型列表") }
+                        TextButton(onClick = { pickerModel = null }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(com.fioiu8.dshpocket.R.string.native_back_to_models)) }
                         val option = pickerModel!!
-                        val efforts = option.efforts.ifEmpty { listOf("default" to "服务默认") }
+                        val efforts = option.efforts.ifEmpty { listOf("default" to context.getString(com.fioiu8.dshpocket.R.string.native_effort_default)) }
                         efforts.forEach { (effortId, effortName) ->
                             TextButton(
                                 onClick = {
@@ -602,7 +607,7 @@ fun NativeChatScreen(
                                             targetId = ((created as? RpcResult.Ok)?.value as? JSONObject)?.optString("sessionId")
                                                 ?.takeIf(String::isNotBlank)
                                             if (targetId == null) {
-                                                error = (created as? RpcResult.Err)?.message ?: "创建会话失败"
+                                            error = (created as? RpcResult.Err)?.message ?: context.getString(com.fioiu8.dshpocket.R.string.native_create_session_failed)
                                                 return@launch
                                             }
                                             sessionId = targetId
@@ -613,7 +618,7 @@ fun NativeChatScreen(
                                             .put("model", option.modelId)
                                             .apply { if (effortId != "default") put("reasoningEffort", effortId) }
                                         when (val result = chatRpc(engine.baseUrl, "session/selectModel", EngineApi.requestArgs(request), engine.token)) {
-                                            is RpcResult.Err -> error = "切换模型失败：${result.message}"
+                                            is RpcResult.Err -> error = "${context.getString(com.fioiu8.dshpocket.R.string.native_switch_model_failed)}: ${result.message}"
                                             is RpcResult.Ok -> {
                                                 error = null
                                                 showModelPicker = false
@@ -628,7 +633,7 @@ fun NativeChatScreen(
                     }
                 }
             },
-            confirmButton = { TextButton(onClick = { showModelPicker = false; pickerModel = null }) { Text("关闭") } },
+            confirmButton = { TextButton(onClick = { showModelPicker = false; pickerModel = null }) { Text(stringResource(com.fioiu8.dshpocket.R.string.close)) } },
         )
     }
 }
@@ -662,7 +667,7 @@ private fun NativeMessageBubble(
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                     modifier = Modifier.padding(bottom = 8.dp, end = 2.dp),
                 ) {
-                    Text("用户", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Medium)
+                    Text(stringResource(com.fioiu8.dshpocket.R.string.native_user), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Medium)
                     Box(
                         Modifier
                             .size(40.dp)
@@ -734,11 +739,11 @@ private fun MessageMetadata(
         horizontalArrangement = if (fromUser) Arrangement.End else Arrangement.Start,
     ) {
         IconButton(onClick = onCopy, modifier = Modifier.size(36.dp)) {
-            Icon(Icons.Filled.ContentCopy, contentDescription = "复制消息", modifier = Modifier.size(19.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            Icon(Icons.Filled.ContentCopy, contentDescription = stringResource(com.fioiu8.dshpocket.R.string.copy), modifier = Modifier.size(19.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         if (onAssist != null) {
             IconButton(onClick = onAssist, modifier = Modifier.size(36.dp)) {
-                Icon(Icons.Filled.AutoAwesome, contentDescription = "辅助回答", modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                Icon(Icons.Filled.AutoAwesome, contentDescription = stringResource(com.fioiu8.dshpocket.R.string.settings_assist_reply), modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
         if (metadata.isNotEmpty()) {
@@ -804,7 +809,7 @@ private fun ChatComposer(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(Modifier.weight(1f).padding(vertical = 8.dp)) {
                         if (value.isEmpty()) {
-                            Text("输入消息与 AI 聊天", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(stringResource(com.fioiu8.dshpocket.R.string.native_input_placeholder), color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         BasicTextField(
                             value = value,
@@ -826,25 +831,25 @@ private fun ChatComposer(
                     Spacer(Modifier.weight(1f))
                     Box {
                         IconButton(onClick = { showMore = true }, modifier = Modifier.size(44.dp)) {
-                            Icon(Icons.Filled.Add, contentDescription = "更多输入选项", tint = MaterialTheme.colorScheme.onSurface)
+                            Icon(Icons.Filled.Add, contentDescription = stringResource(com.fioiu8.dshpocket.R.string.more_actions), tint = MaterialTheme.colorScheme.onSurface)
                         }
                         DropdownMenu(expanded = showMore, onDismissRequest = { showMore = false }) {
                             DropdownMenuItem(
-                                text = { Text("粘贴剪贴板") },
+                                text = { Text(stringResource(com.fioiu8.dshpocket.R.string.paste_clipboard)) },
                                 onClick = {
                                     clipboard.getText()?.text?.let { onValueChange(value + it) }
                                     showMore = false
                                 },
                             )
                             DropdownMenuItem(
-                                text = { Text("清空输入") },
+                                text = { Text(stringResource(com.fioiu8.dshpocket.R.string.clear)) },
                                 onClick = { onValueChange(""); showMore = false },
                             )
                         }
                     }
                     if (running) {
                         FilledIconButton(onClick = onCancel, modifier = Modifier.size(48.dp)) {
-                            Icon(Icons.Filled.Stop, contentDescription = "停止生成")
+                            Icon(Icons.Filled.Stop, contentDescription = stringResource(com.fioiu8.dshpocket.R.string.stop))
                         }
                     } else {
                         FilledIconButton(
@@ -852,7 +857,7 @@ private fun ChatComposer(
                             enabled = enabled && value.isNotBlank() && !sending,
                             modifier = Modifier.size(48.dp),
                         ) {
-                            Icon(Icons.Filled.Send, contentDescription = "发送")
+                            Icon(Icons.Filled.Send, contentDescription = stringResource(com.fioiu8.dshpocket.R.string.send))
                         }
                     }
                 }
@@ -866,12 +871,12 @@ internal fun parseNativeChatSessions(items: JSONArray): List<NativeChatSession> 
         val item = items.optJSONObject(index) ?: continue
         if (item.optBoolean("blank")) continue
         val values = item.optJSONObject("projections")?.optJSONObject("values")
-        val title = values?.optString("title")?.takeIf { it.isNotBlank() && it != "null" } ?: "（无标题会话）"
+        val title = values?.optString("title")?.takeIf { it.isNotBlank() && it != "null" } ?: "Untitled session"
         add(NativeChatSession(item.optString("sessionId"), title, item.optBoolean("running")))
     }
 }
 
-internal fun parseNativeModelCatalog(catalog: JSONObject?): List<NativeModelOption> = buildList {
+internal fun parseNativeModelCatalog(catalog: JSONObject?, defaultEffortLabel: String = "模型默认"): List<NativeModelOption> = buildList {
     val groups = catalog?.optJSONArray("groups") ?: return@buildList
     for (groupIndex in 0 until groups.length()) {
         val group = groups.optJSONObject(groupIndex) ?: continue
@@ -881,7 +886,7 @@ internal fun parseNativeModelCatalog(catalog: JSONObject?): List<NativeModelOpti
             val modelId = model.optString("id").takeIf(String::isNotBlank) ?: continue
             val effortValues = model.optJSONObject("reasoning")?.optJSONArray("efforts")
             val efforts = buildList {
-                add("default" to "模型默认")
+                add("default" to defaultEffortLabel)
                 if (effortValues != null) for (effortIndex in 0 until effortValues.length()) {
                     val effort = effortValues.optJSONObject(effortIndex) ?: continue
                     val id = effort.optString("id").takeIf(String::isNotBlank) ?: continue
@@ -1078,5 +1083,5 @@ private suspend fun chatRpc(
 } catch (cancelled: kotlinx.coroutines.CancellationException) {
     throw cancelled
 } catch (failure: Exception) {
-    RpcResult.Err("transport", failure.message ?: "无法连接本地引擎")
+    RpcResult.Err("transport", failure.message ?: "Unable to connect to local engine")
 }

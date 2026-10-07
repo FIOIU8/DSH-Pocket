@@ -49,6 +49,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -104,11 +105,11 @@ private val providerProtocols = listOf(
 fun ModelsScreen(state: EngineState, onMenu: () -> Unit) {
     val ready = state as? EngineState.Ready
     if (ready == null) {
-        Scaffold(topBar = { DshTopAppBar(title = "模型配置", onMenu = onMenu) }) { padding ->
+        Scaffold(topBar = { DshTopAppBar(title = stringResource(com.fioiu8.dshpocket.R.string.nav_models), onMenu = onMenu) }) { padding ->
             Column(Modifier.fillMaxSize().padding(padding)) {
                 CenteredMessage(
-                    title = "引擎未就绪",
-                    body = (state as? EngineState.Busy)?.message ?: "启动引擎后即可配置模型。",
+                    title = stringResource(com.fioiu8.dshpocket.R.string.engine_not_ready),
+                    body = (state as? EngineState.Busy)?.message ?: stringResource(com.fioiu8.dshpocket.R.string.engine_start_to_configure_models),
                     busy = state is EngineState.Busy,
                 )
             }
@@ -199,7 +200,7 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit) {
             val result = EngineApi.rpc(ready.baseUrl, "settings/update", args, ready.token)
             busy = false
             when (result) {
-                is RpcResult.Err -> error = "保存失败 ${result.code}: ${result.message}"
+                is RpcResult.Err -> error = context.getString(com.fioiu8.dshpocket.R.string.models_save_error, result.code, result.message)
                 is RpcResult.Ok -> reload()
             }
         }
@@ -208,30 +209,30 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit) {
     fun persistProvider(draft: ProviderDraft, existing: ProviderInfo?) {
         val modelEntries = parseProviderModels(draft.models)
         if (modelEntries == null || modelEntries.isEmpty()) {
-            error = "至少添加一个有效模型；每行填写 model-id 或 model-id|显示名称。"
+            error = context.getString(com.fioiu8.dshpocket.R.string.models_add_one_error)
             return
         }
         if (!isHttpEndpoint(draft.baseURL)) {
-            error = "请输入有效的 http 或 https 服务地址。"
+            error = context.getString(com.fioiu8.dshpocket.R.string.models_url_error)
             return
         }
         if (!Regex("^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$").matches(draft.id) ||
             (existing == null && providers.any { it.id == draft.id })
         ) {
-            error = "服务 ID 需以小写字母开头，只能包含小写字母、数字和连字符，且不能重复。"
+            error = context.getString(com.fioiu8.dshpocket.R.string.models_service_id_hint)
             return
         }
         if (draft.api !in providerProtocols.map { it.first }) {
-            error = "不支持的 API 协议。"
+            error = context.getString(com.fioiu8.dshpocket.R.string.models_protocol_error)
             return
         }
         val headers = parseProviderHeaders(draft.headers)
         if (headers == null) {
-            error = "Header 格式错误或名称重复。"
+            error = context.getString(com.fioiu8.dshpocket.R.string.models_headers_error)
             return
         }
         if (defaultProvider == draft.id && defaultModel?.let { model -> modelEntries.none { it.first == model } } == true) {
-            error = "当前默认模型将被移除，请先切换默认模型。"
+            error = context.getString(com.fioiu8.dshpocket.R.string.models_default_removed_error)
             return
         }
 
@@ -286,7 +287,7 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit) {
             val args = JSONObject().put("ns", "llm-pi-ai").put("ops", ops)
             providerRevision?.let { args.put("expectedRevision", it) }
             when (val result = EngineApi.rpc(ready.baseUrl, "settings/mutate", args, ready.token)) {
-                is RpcResult.Err -> actionError = "保存模型服务失败 ${result.code}: ${result.message}"
+                is RpcResult.Err -> actionError = context.getString(com.fioiu8.dshpocket.R.string.models_save_service_error, result.code, result.message)
                 is RpcResult.Ok -> {
                     editorPage = false
                     var credentialError: String? = null
@@ -297,7 +298,7 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit) {
                             JSONObject().put("ref", keyRef).put("value", draft.apiKey.trim()),
                             ready.token,
                         )) {
-                            is RpcResult.Err -> credentialError = "服务配置已保存，但 API Key 保存失败：${credential.message}"
+                            is RpcResult.Err -> credentialError = context.getString(com.fioiu8.dshpocket.R.string.models_key_save_error, credential.message)
                             is RpcResult.Ok -> Unit
                         }
                     }
@@ -315,7 +316,7 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit) {
 
     fun removeProvider(provider: ProviderInfo) {
         if (defaultProvider == provider.id) {
-            error = "请先切换默认模型，再删除当前默认服务。"
+            error = context.getString(com.fioiu8.dshpocket.R.string.models_default_service_delete_error)
             deleteProvider = null
             return
         }
@@ -331,7 +332,7 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit) {
                     ready.token,
                 )) {
                     is RpcResult.Err -> {
-                        actionError = "删除 API Key 失败 ${credential.code}: ${credential.message}"
+                        actionError = context.getString(com.fioiu8.dshpocket.R.string.models_delete_key_error, credential.code, credential.message)
                         busy = false
                         deleteProvider = null
                         return@launch
@@ -348,7 +349,7 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit) {
             providerRevision?.let { args.put("expectedRevision", it) }
             when (val result = EngineApi.rpc(ready.baseUrl, "settings/mutate", args, ready.token)) {
                 is RpcResult.Err -> {
-                    actionError = "删除模型服务失败 ${result.code}: ${result.message}（API Key 已清除）"
+                    actionError = context.getString(com.fioiu8.dshpocket.R.string.models_delete_service_error, result.code, result.message)
                     tick += 1
                 }
                 is RpcResult.Ok -> reload()
@@ -364,7 +365,7 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit) {
         val describe = EngineApi.rpc(ready.baseUrl, "settings/describe", EngineApi.emptyArgs(), ready.token)
         if (describe !is RpcResult.Ok) {
             busy = false
-            error = (describe as? RpcResult.Err)?.let { "${it.code}: ${it.message}" } ?: "未知错误"
+            error = (describe as? RpcResult.Err)?.let { "${it.code}: ${it.message}" } ?: context.getString(com.fioiu8.dshpocket.R.string.error_unknown)
             return@LaunchedEffect
         }
         var loadedProviders = providers
@@ -485,23 +486,23 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit) {
         topBar = {
             if (officialApiPage) {
                 TopAppBar(
-                    title = { Text("DeepSeek API") },
+                    title = { Text(stringResource(com.fioiu8.dshpocket.R.string.models_deepseek_api)) },
                     navigationIcon = {
                         IconButton(onClick = { officialApiPage = false }) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(com.fioiu8.dshpocket.R.string.back))
                         }
                     },
                 )
             } else if (editorPage) {
                 TopAppBar(
-                    title = { Text(when { headersPage -> "自定义 Header"; modelsPage -> "模型列表"; editingProvider == null -> "添加模型服务"; else -> "编辑模型服务" }) },
+                    title = { Text(when { headersPage -> stringResource(com.fioiu8.dshpocket.R.string.models_custom_headers); modelsPage -> stringResource(com.fioiu8.dshpocket.R.string.models_model_list); editingProvider == null -> stringResource(com.fioiu8.dshpocket.R.string.models_add_service); else -> stringResource(com.fioiu8.dshpocket.R.string.models_edit_service) }) },
                     navigationIcon = {
                         IconButton(onClick = { when { headersPage -> headersPage = false; modelsPage -> modelsPage = false; else -> editorPage = false } }) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(com.fioiu8.dshpocket.R.string.back))
                         }
                     },
                 )
-            } else DshTopAppBar(title = "模型配置", onMenu = onMenu)
+            } else DshTopAppBar(title = stringResource(com.fioiu8.dshpocket.R.string.nav_models), onMenu = onMenu)
         },
     ) { padding ->
         if (officialApiPage) {
@@ -524,7 +525,7 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit) {
                             JSONObject().put("ref", officialApiKeyRef).put("value", value),
                             ready.token,
                         )) {
-                            is RpcResult.Err -> actionError = "保存 DeepSeek API Key 失败：${result.message}"
+                            is RpcResult.Err -> actionError = "${context.getString(com.fioiu8.dshpocket.R.string.models_save_api_key)}: ${result.message}"
                             is RpcResult.Ok -> {
                                 officialApiKey = ""
                                 officialApiPage = false
@@ -544,7 +545,7 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit) {
                             JSONObject().put("ref", officialApiKeyRef),
                             ready.token,
                         )) {
-                            is RpcResult.Err -> actionError = "清除 DeepSeek API Key 失败：${result.message}"
+                            is RpcResult.Err -> actionError = "${context.getString(com.fioiu8.dshpocket.R.string.models_clear)}: ${result.message}"
                             is RpcResult.Ok -> {
                                 officialApiPage = false
                                 reload()
@@ -591,12 +592,12 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit) {
                             JSONObject().put("settingsNs", "llm-pi-ai").put("request", request),
                             ready.token,
                         )) {
-                            is RpcResult.Err -> actionError = "获取模型列表失败：${result.message}"
+                            is RpcResult.Err -> actionError = context.getString(com.fioiu8.dshpocket.R.string.models_discover_error, result.message)
                             is RpcResult.Ok -> {
                                 val models = (result.value as? JSONArray)?.let { array ->
                                     (0 until array.length()).mapNotNull { array.optJSONObject(it)?.let { model -> JSONObject(model.toString()) } }
                                 }.orEmpty()
-                                if (models.isEmpty()) actionError = "服务没有返回可用模型。"
+                                if (models.isEmpty()) actionError = context.getString(com.fioiu8.dshpocket.R.string.models_no_models_returned)
                                 else {
                                     val currentIds = parseProviderModels(editorModels).orEmpty().map { it.first }.toSet()
                                     discoveredModels = models
@@ -662,7 +663,7 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit) {
                 )
             }
 
-            SectionHeader("当前模型")
+            SectionHeader(stringResource(com.fioiu8.dshpocket.R.string.models_current))
             GroupedList(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -671,13 +672,13 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit) {
                     ListItem(
                         headlineContent = {
                             Text(
-                                "${defaultProvider ?: "未设置"} / ${defaultModel ?: "未设置"}",
+                                "${defaultProvider ?: stringResource(com.fioiu8.dshpocket.R.string.models_not_set)} / ${defaultModel ?: stringResource(com.fioiu8.dshpocket.R.string.models_not_set)}",
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.SemiBold,
                             )
                         },
                         supportingContent = {
-                            Text("新会话将默认使用这个模型；已存在会话各自保留自己的选择。")
+                            Text(stringResource(com.fioiu8.dshpocket.R.string.models_new_session_hint))
                         },
                         trailingContent = {
                             Icon(
@@ -691,14 +692,14 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit) {
                 },
             )
 
-            SectionHeader("模型服务")
+            SectionHeader(stringResource(com.fioiu8.dshpocket.R.string.models_services))
             OutlinedButton(
                 onClick = { openEditor(null) },
                 enabled = !busy,
                 modifier = Modifier.padding(horizontal = DshSpacing.page),
             ) {
                 Icon(Icons.Filled.Add, contentDescription = null)
-                Text("添加自定义服务", modifier = Modifier.padding(start = 8.dp))
+                Text(stringResource(com.fioiu8.dshpocket.R.string.models_add_custom), modifier = Modifier.padding(start = 8.dp))
             }
             GroupedList(
                 modifier = Modifier
@@ -713,10 +714,10 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(provider.displayName, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
                                 IconButton(onClick = { openEditor(provider) }, enabled = !busy) {
-                                    Icon(Icons.Filled.Edit, contentDescription = "编辑 ${provider.displayName}")
+                                    Icon(Icons.Filled.Edit, contentDescription = stringResource(com.fioiu8.dshpocket.R.string.edit, provider.displayName))
                                 }
                                 IconButton(onClick = { deleteProvider = provider }, enabled = !busy) {
-                                    Icon(Icons.Filled.DeleteOutline, contentDescription = "删除 ${provider.displayName}")
+                                    Icon(Icons.Filled.DeleteOutline, contentDescription = stringResource(com.fioiu8.dshpocket.R.string.delete) + " ${provider.displayName}")
                                 }
                             }
                             Text(
@@ -733,7 +734,7 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit) {
                             }
                             Text(
                                 text = provider.models.joinToString("、") { it.second.ifBlank { it.first } }
-                                    .ifBlank { "（未配置模型清单）" },
+                                    .ifBlank { stringResource(com.fioiu8.dshpocket.R.string.models_unconfigured) },
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -750,12 +751,12 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit) {
                                         modifier = Modifier.padding(top = 2.dp),
                                     )
                                     Text(
-                                        text = if (configured) "API Key：已配置" else "API Key：未配置",
+                                        text = if (configured) stringResource(com.fioiu8.dshpocket.R.string.models_api_key_configured) else stringResource(com.fioiu8.dshpocket.R.string.models_api_key_missing),
                                         style = MaterialTheme.typography.bodySmall,
                                         color = if (configured) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
                                     )
                                     TextButton(onClick = { keyDialogFor = provider }, modifier = Modifier.dshControl()) {
-                                        Text(if (configured) "更换" else "设置")
+                                        Text(if (configured) stringResource(com.fioiu8.dshpocket.R.string.models_change_api_key) else stringResource(com.fioiu8.dshpocket.R.string.models_set_api_key))
                                     }
                                     if (configured) {
                                         TextButton(onClick = {
@@ -767,12 +768,12 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit) {
                                                     JSONObject().put("ref", env),
                                                     ready.token,
                                                 )) {
-                                                    is RpcResult.Err -> actionError = "清除 API Key 失败：${result.message}"
+                                                    is RpcResult.Err -> actionError = "${context.getString(com.fioiu8.dshpocket.R.string.models_clear)}: ${result.message}"
                                                     is RpcResult.Ok -> reload()
                                                 }
                                                 busy = false
                                             }
-                                        }, modifier = Modifier.dshControl()) { Text("清除") }
+                                        }, modifier = Modifier.dshControl()) { Text(stringResource(com.fioiu8.dshpocket.R.string.models_clear)) }
                                     }
                                 }
                             }
@@ -787,13 +788,13 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit) {
                     modifier = Modifier.fillMaxWidth().padding(horizontal = DshSpacing.page),
                     items = listOf {
                         ListItem(
-                            headlineContent = { Text("DeepSeek API") },
+                            headlineContent = { Text(stringResource(com.fioiu8.dshpocket.R.string.models_deepseek_api)) },
                             supportingContent = {
-                                Text(if (configured) "API Key：已配置" else "API Key：未配置")
+                                Text(if (configured) stringResource(com.fioiu8.dshpocket.R.string.models_api_key_configured) else stringResource(com.fioiu8.dshpocket.R.string.models_api_key_missing))
                             },
                             trailingContent = {
                                 TextButton(onClick = { openOfficialApiEditor() }, enabled = !busy) {
-                                    Text(if (configured) "更换" else "设置")
+                                    Text(if (configured) stringResource(com.fioiu8.dshpocket.R.string.models_change_api_key) else stringResource(com.fioiu8.dshpocket.R.string.models_set_api_key))
                                 }
                             },
                             modifier = Modifier.clickable(enabled = !busy) {
@@ -815,7 +816,7 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit) {
                     items = builtinOnly.map { (id, name) ->
                         {
                             ListItem(
-                                headlineContent = { Text("内置：$name") },
+                                headlineContent = { Text(stringResource(com.fioiu8.dshpocket.R.string.models_builtin_prefix, name)) },
                                 trailingContent = { Text(id) },
                             )
                         }
@@ -835,21 +836,21 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit) {
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text("DeepSeek Account", modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
+                                Text(stringResource(com.fioiu8.dshpocket.R.string.models_deepseek_account), modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
                                 Text(
-                                    if (status == "credential-stored") "已授权" else if (signInRunning) "等待网页登录" else "未授权",
+                                    if (status == "credential-stored") stringResource(com.fioiu8.dshpocket.R.string.models_authorized) else if (signInRunning) stringResource(com.fioiu8.dshpocket.R.string.models_waiting_login) else stringResource(com.fioiu8.dshpocket.R.string.models_unauthorized),
                                     style = MaterialTheme.typography.labelMedium,
                                     color = if (status == "credential-stored") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
                             Text(
                                 when (phase) {
-                                    "initializing" -> "正在准备网页登录…"
-                                    "waiting-browser" -> "请在浏览器中完成 DeepSeek 登录。"
-                                    "exchanging", "committing" -> "正在确认账号授权…"
-                                    "failed" -> "授权失败：${accountView?.optJSONObject("attempt")?.optString("errorCode") ?: "未知错误"}"
-                                    "expired" -> "授权已过期，请重新登录。"
-                                    else -> "使用 DeepSeek 网页账号授权，不需要填写 API Key。"
+                                    "initializing" -> stringResource(com.fioiu8.dshpocket.R.string.models_login_preparing)
+                                    "waiting-browser" -> stringResource(com.fioiu8.dshpocket.R.string.models_login_browser)
+                                    "exchanging", "committing" -> stringResource(com.fioiu8.dshpocket.R.string.models_login_confirming)
+                                    "failed" -> stringResource(com.fioiu8.dshpocket.R.string.models_login_failed, accountView?.optJSONObject("attempt")?.optString("errorCode") ?: stringResource(com.fioiu8.dshpocket.R.string.error_unknown))
+                                    "expired" -> stringResource(com.fioiu8.dshpocket.R.string.models_login_expired)
+                                    else -> stringResource(com.fioiu8.dshpocket.R.string.models_login_hint)
                                 },
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -874,21 +875,21 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit) {
                                                     .put("loginSource", "desktop"),
                                                 ready.token,
                                             )) {
-                                                is RpcResult.Err -> actionError = "启动 DeepSeek 网页授权失败：${result.message}"
+                                                is RpcResult.Err -> actionError = "${context.getString(com.fioiu8.dshpocket.R.string.models_start_login_failed)}: ${result.message}"
                                                 is RpcResult.Ok -> {
                                                     accountView = result.value as? JSONObject
                                                     val authorizeUrl = accountView?.optJSONObject("attempt")?.optString("authorizeUrl")
                                                     if (!authorizeUrl.isNullOrBlank()) {
                                                         runCatching {
                                                             context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(authorizeUrl)))
-                                                        }.onFailure { actionError = "无法打开系统浏览器：${it.message}" }
+                                                        }.onFailure { actionError = "${context.getString(com.fioiu8.dshpocket.R.string.models_browser_failed)}: ${it.message}" }
                                                     }
                                                 }
                                             }
                                             busy = false
                                         }
                                     },
-                                ) { Text(if (signInRunning) "授权中" else if (status == "credential-stored") "重新授权" else "网页登录授权") }
+                                ) { Text(if (signInRunning) stringResource(com.fioiu8.dshpocket.R.string.models_authorizing) else if (status == "credential-stored") stringResource(com.fioiu8.dshpocket.R.string.models_reauthorize) else stringResource(com.fioiu8.dshpocket.R.string.models_web_login)) }
                                 if (signInRunning) {
                                     TextButton(
                                         enabled = !busy,
@@ -902,13 +903,13 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit) {
                                                     JSONObject().put("attemptId", attemptId),
                                                     ready.token,
                                                 )) {
-                                                    is RpcResult.Err -> actionError = "取消授权失败：${result.message}"
+                                                    is RpcResult.Err -> actionError = "${context.getString(com.fioiu8.dshpocket.R.string.models_cancel_login_failed)}: ${result.message}"
                                                     is RpcResult.Ok -> accountView = result.value as? JSONObject
                                                 }
                                                 busy = false
                                             }
                                         },
-                                    ) { Text("取消授权") }
+                                    ) { Text(stringResource(com.fioiu8.dshpocket.R.string.models_auth_cancel)) }
                                 }
                                 if (status == "credential-stored") {
                                     TextButton(
@@ -927,13 +928,13 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit) {
                                                     JSONObject().put("client", client),
                                                     ready.token,
                                                 )) {
-                                                    is RpcResult.Err -> actionError = "退出 DeepSeek Account 失败：${result.message}"
+                                                    is RpcResult.Err -> actionError = "${context.getString(com.fioiu8.dshpocket.R.string.models_signout_failed)}: ${result.message}"
                                                     is RpcResult.Ok -> accountView = result.value as? JSONObject
                                                 }
                                                 busy = false
                                             }
                                         },
-                                    ) { Text("退出账号") }
+                                    ) { Text(stringResource(com.fioiu8.dshpocket.R.string.models_sign_out)) }
                                 }
                             }
                         }
@@ -943,7 +944,7 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit) {
 
             HorizontalDivider(Modifier.padding(vertical = 12.dp))
             Text(
-                text = "API Key 只写入本机引擎的凭据存储，读取接口不会返回明文。",
+                text = stringResource(com.fioiu8.dshpocket.R.string.models_api_key_storage_hint),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = DshSpacing.page),
@@ -953,7 +954,7 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit) {
 
     if (pickingProvider) {
         RadioDialog(
-            title = "选择模型服务",
+            title = stringResource(com.fioiu8.dshpocket.R.string.models_select_service),
             options = providers.map { it.id to it.displayName },
             selected = defaultProvider,
             onDismiss = { pickingProvider = false },
@@ -971,7 +972,7 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit) {
         val current = providers.firstOrNull { it.id == defaultProvider }
         if (current != null && current.models.isNotEmpty()) {
             RadioDialog(
-                title = "选择模型",
+                title = stringResource(com.fioiu8.dshpocket.R.string.models_select_model),
                 options = current.models.map { it.first to it.second.ifBlank { it.first } },
                 selected = defaultModel,
                 onDismiss = { pickingModel = false },
@@ -989,11 +990,11 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit) {
         var keyValue by remember(provider.id) { mutableStateOf("") }
         AlertDialog(
             onDismissRequest = { keyDialogFor = null },
-            title = { Text("设置 ${provider.displayName} 的 API Key") },
+            title = { Text(stringResource(com.fioiu8.dshpocket.R.string.models_set_provider_key, provider.displayName)) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
-                        "将写入凭据 ${provider.apiKeyEnv}；保存后即可在对话中使用。",
+                        stringResource(com.fioiu8.dshpocket.R.string.models_provider_key_hint, provider.apiKeyEnv.orEmpty()),
                         style = MaterialTheme.typography.bodySmall,
                     )
                     OutlinedTextField(
@@ -1017,14 +1018,14 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit) {
                             JSONObject().put("ref", provider.apiKeyEnv).put("value", value),
                             ready.token,
                         )) {
-                            is RpcResult.Err -> actionError = "保存 API Key 失败：${result.message}"
+                            is RpcResult.Err -> actionError = "${context.getString(com.fioiu8.dshpocket.R.string.models_save_api_key)}: ${result.message}"
                             is RpcResult.Ok -> reload()
                         }
                         busy = false
                     }
-                }, modifier = Modifier.dshControl()) { Text("保存") }
+                }, modifier = Modifier.dshControl()) { Text(stringResource(com.fioiu8.dshpocket.R.string.save)) }
             },
-        dismissButton = { TextButton(onClick = { keyDialogFor = null }, modifier = Modifier.dshControl()) { Text("取消") } },
+        dismissButton = { TextButton(onClick = { keyDialogFor = null }, modifier = Modifier.dshControl()) { Text(stringResource(com.fioiu8.dshpocket.R.string.cancel)) } },
         )
     }
 
@@ -1032,11 +1033,11 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit) {
         val isDefault = defaultProvider == provider.id
         AlertDialog(
             onDismissRequest = { if (!busy) deleteProvider = null },
-            title = { Text("删除模型服务？") },
+            title = { Text(stringResource(com.fioiu8.dshpocket.R.string.models_delete_service_title)) },
             text = {
                 Text(
-                    if (isDefault) "${provider.displayName} 是当前默认服务。请先切换默认模型，再删除。"
-                    else "将删除 ${provider.displayName} 的服务配置和本机保存的 API Key。此操作不可撤销。",
+                    if (isDefault) stringResource(com.fioiu8.dshpocket.R.string.models_delete_default_hint, provider.displayName)
+                    else stringResource(com.fioiu8.dshpocket.R.string.models_delete_hint, provider.displayName),
                 )
             },
             confirmButton = {
@@ -1044,10 +1045,10 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit) {
                     onClick = { removeProvider(provider) },
                     enabled = !busy && !isDefault,
                     modifier = Modifier.dshControl(),
-                ) { Text("删除") }
+                ) { Text(stringResource(com.fioiu8.dshpocket.R.string.delete)) }
             },
             dismissButton = {
-                TextButton(onClick = { deleteProvider = null }, modifier = Modifier.dshControl()) { Text("取消") }
+                TextButton(onClick = { deleteProvider = null }, modifier = Modifier.dshControl()) { Text(stringResource(com.fioiu8.dshpocket.R.string.cancel)) }
             },
         )
     }
@@ -1069,30 +1070,30 @@ private fun DeepSeekApiKeyPage(
         modifier.verticalScroll(rememberScrollState()).padding(horizontal = DshSpacing.page, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        Text("DeepSeek 官方 API", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+        Text(stringResource(com.fioiu8.dshpocket.R.string.models_deepseek_api), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
         Text(
-            if (configured) "API Key 已配置。重新输入密钥即可更换。" else "填写 DeepSeek API Key 以启用官方模型。",
+            if (configured) stringResource(com.fioiu8.dshpocket.R.string.models_key_configured_hint) else stringResource(com.fioiu8.dshpocket.R.string.models_key_enter_hint),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         OutlinedTextField(
             value = apiKey,
             onValueChange = onApiKeyChange,
-            label = { Text("API Key") },
+            label = { Text(stringResource(com.fioiu8.dshpocket.R.string.models_api_key)) },
             placeholder = { Text("sk-…") },
             singleLine = true,
             visualTransformation = PasswordVisualTransformation(),
             enabled = !busy,
             modifier = Modifier.fillMaxWidth(),
         )
-        Text("凭据引用：$credentialRef。密钥保存在本机 DSH 凭据库中，读取接口不会返回明文。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(stringResource(com.fioiu8.dshpocket.R.string.models_credential_ref, credentialRef), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         errorMessage?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onClick = onSave, enabled = !busy && apiKey.isNotBlank()) {
-                Text(if (busy) "保存中…" else if (configured) "更换 API Key" else "保存 API Key")
+                Text(if (busy) stringResource(com.fioiu8.dshpocket.R.string.models_save_api_key_busy) else if (configured) stringResource(com.fioiu8.dshpocket.R.string.models_change_api_key) else stringResource(com.fioiu8.dshpocket.R.string.models_save_api_key))
             }
             if (configured) {
-                TextButton(onClick = onClear, enabled = !busy, modifier = Modifier.dshControl()) { Text("清除") }
+                TextButton(onClick = onClear, enabled = !busy, modifier = Modifier.dshControl()) { Text(stringResource(com.fioiu8.dshpocket.R.string.models_clear)) }
             }
         }
     }
@@ -1150,28 +1151,28 @@ private fun ProviderEditorPage(
     Column(modifier.verticalScroll(rememberScrollState()).padding(horizontal = DshSpacing.page, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         errorMessage?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
         if (headersPage) {
-            Text("为兼容服务添加自定义请求头。每行填写 Header-Name: value。", style = MaterialTheme.typography.bodySmall)
+            Text(stringResource(com.fioiu8.dshpocket.R.string.models_headers_hint), style = MaterialTheme.typography.bodySmall)
             OutlinedTextField(
                 value = headers,
                 onValueChange = onHeadersChange,
-                label = { Text("请求头") },
+                label = { Text(stringResource(com.fioiu8.dshpocket.R.string.models_headers)) },
                 placeholder = { Text("X-Organization: team-a") },
-                supportingText = { Text("留空表示不使用自定义 Header") },
+                supportingText = { Text(stringResource(com.fioiu8.dshpocket.R.string.models_headers_not_set)) },
                 minLines = 5,
                 enabled = !busy,
                 modifier = Modifier.fillMaxWidth(),
             )
         } else if (modelsPage) {
-            Text("模型 ID 必填，显示名称可选。", style = MaterialTheme.typography.bodySmall)
+            Text(stringResource(com.fioiu8.dshpocket.R.string.models_add_models_hint), style = MaterialTheme.typography.bodySmall)
             OutlinedButton(
                 onClick = onDiscoverModels,
                 enabled = !busy && isHttpEndpoint(baseUrl),
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Text(if (busy) "正在获取…" else "获取可用模型")
+                Text(if (busy) stringResource(com.fioiu8.dshpocket.R.string.models_getting_models) else stringResource(com.fioiu8.dshpocket.R.string.models_get_models))
             }
             if (!isHttpEndpoint(baseUrl)) {
-                Text("填写有效的服务地址后即可获取模型。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(stringResource(com.fioiu8.dshpocket.R.string.models_fill_address_hint), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             modelRows.forEachIndexed { index, (modelId, modelName) ->
                 Row(
@@ -1186,7 +1187,7 @@ private fun ProviderEditorPage(
                                 modelRows = next
                                 onModelsChange(encodeProviderModels(next))
                             },
-                            label = { Text("模型 ID") },
+                            label = { Text(stringResource(com.fioiu8.dshpocket.R.string.models_model_id)) },
                             placeholder = { Text("deepseek-chat") },
                             singleLine = true,
                             enabled = !busy,
@@ -1199,7 +1200,7 @@ private fun ProviderEditorPage(
                                 modelRows = next
                                 onModelsChange(encodeProviderModels(next))
                             },
-                            label = { Text("显示名称（可选）") },
+                            label = { Text(stringResource(com.fioiu8.dshpocket.R.string.models_display_name_optional)) },
                             singleLine = true,
                             enabled = !busy,
                             modifier = Modifier.fillMaxWidth(),
@@ -1212,7 +1213,7 @@ private fun ProviderEditorPage(
                             onModelsChange(encodeProviderModels(next))
                         },
                         enabled = !busy,
-                    ) { Icon(Icons.Filled.DeleteOutline, contentDescription = "删除模型") }
+                    ) { Icon(Icons.Filled.DeleteOutline, contentDescription = stringResource(com.fioiu8.dshpocket.R.string.delete)) }
                 }
             }
             OutlinedButton(
@@ -1221,19 +1222,19 @@ private fun ProviderEditorPage(
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Icon(Icons.Filled.Add, contentDescription = null)
-                Text("添加模型", modifier = Modifier.padding(start = 8.dp))
+                Text(stringResource(com.fioiu8.dshpocket.R.string.models_add_model), modifier = Modifier.padding(start = 8.dp))
             }
             when {
-                parsedModels == null -> Text("模型 ID 不能为空，也不能重复。", color = MaterialTheme.colorScheme.error)
-                else -> Text("${parsedModels.size} 个模型", style = MaterialTheme.typography.labelMedium)
+                parsedModels == null -> Text(stringResource(com.fioiu8.dshpocket.R.string.models_model_id_required), color = MaterialTheme.colorScheme.error)
+                else -> Text(stringResource(com.fioiu8.dshpocket.R.string.models_model_count, parsedModels.size), style = MaterialTheme.typography.labelMedium)
             }
         } else {
             OutlinedTextField(
                 value = id,
                 onValueChange = onIdChange,
-                label = { Text("服务 ID") },
+                label = { Text(stringResource(com.fioiu8.dshpocket.R.string.models_service_id)) },
                 placeholder = { Text("my-gateway") },
-                supportingText = { Text(if (provider == null) "小写字母开头，可含数字和连字符" else "服务 ID 创建后不可更改") },
+                supportingText = { Text(if (provider == null) stringResource(com.fioiu8.dshpocket.R.string.models_service_id_hint) else stringResource(com.fioiu8.dshpocket.R.string.models_service_id_fixed)) },
                 singleLine = true,
                 enabled = !busy && provider == null,
                 modifier = Modifier.fillMaxWidth(),
@@ -1241,7 +1242,7 @@ private fun ProviderEditorPage(
             OutlinedTextField(
                 value = displayName,
                 onValueChange = onDisplayNameChange,
-                label = { Text("显示名称") },
+                label = { Text(stringResource(com.fioiu8.dshpocket.R.string.models_display_name)) },
                 singleLine = true,
                 enabled = !busy,
                 modifier = Modifier.fillMaxWidth(),
@@ -1249,14 +1250,14 @@ private fun ProviderEditorPage(
             OutlinedTextField(
                 value = baseUrl,
                 onValueChange = onBaseUrlChange,
-                label = { Text("服务地址") },
+                label = { Text(stringResource(com.fioiu8.dshpocket.R.string.models_service_address)) },
                 placeholder = { Text("https://api.example.com/v1") },
                 singleLine = true,
                 enabled = !busy,
                 modifier = Modifier.fillMaxWidth(),
             )
             Column {
-                Text("API 协议", style = MaterialTheme.typography.labelMedium)
+                Text(stringResource(com.fioiu8.dshpocket.R.string.models_api_protocol), style = MaterialTheme.typography.labelMedium)
                 OutlinedButton(onClick = { protocolMenu = true }, enabled = !busy) {
                     Text(providerProtocols.firstOrNull { it.first == api }?.second ?: api)
                 }
@@ -1269,37 +1270,37 @@ private fun ProviderEditorPage(
             OutlinedTextField(
                 value = apiKey,
                 onValueChange = onApiKeyChange,
-                label = { Text("API Key${if (provider == null) "（可选）" else "（留空则不更换）"}") },
+                label = { Text(stringResource(com.fioiu8.dshpocket.R.string.models_api_key) + if (provider == null) " (${stringResource(com.fioiu8.dshpocket.R.string.models_optional)})" else " (${stringResource(com.fioiu8.dshpocket.R.string.models_leave_blank_unchanged)})") },
                 singleLine = true,
                 visualTransformation = PasswordVisualTransformation(),
                 enabled = !busy,
                 modifier = Modifier.fillMaxWidth(),
             )
             ListItem(
-                headlineContent = { Text("自定义 Header") },
-                supportingContent = { Text(headers.lineSequence().count { it.isNotBlank() }.let { if (it == 0) "未设置" else "$it 项请求头" }) },
+                headlineContent = { Text(stringResource(com.fioiu8.dshpocket.R.string.models_headers)) },
+                supportingContent = { Text(headers.lineSequence().count { it.isNotBlank() }.let { if (it == 0) stringResource(com.fioiu8.dshpocket.R.string.models_headers_not_set) else stringResource(com.fioiu8.dshpocket.R.string.models_header_count, it) }) },
                 trailingContent = { Icon(Icons.Filled.ChevronRight, contentDescription = null) },
                 modifier = Modifier.clickable(enabled = !busy) { onHeadersPage(true) },
             )
             ListItem(
-                headlineContent = { Text("模型列表") },
-                supportingContent = { Text(parsedModels?.size?.let { "$it 个模型" } ?: "请填写有效模型") },
+                headlineContent = { Text(stringResource(com.fioiu8.dshpocket.R.string.models_models)) },
+                supportingContent = { Text(parsedModels?.size?.let { stringResource(com.fioiu8.dshpocket.R.string.models_model_count, it) } ?: stringResource(com.fioiu8.dshpocket.R.string.models_fill_valid_models)) },
                 trailingContent = { Icon(Icons.Filled.ChevronRight, contentDescription = null) },
                 modifier = Modifier.clickable(enabled = !busy) { onModelsPage(true) },
             )
             when {
-                id.isNotBlank() && !idValid -> Text("服务 ID 格式错误或已存在。", color = MaterialTheme.colorScheme.error)
-                baseUrl.isNotBlank() && !isHttpEndpoint(baseUrl) -> Text("服务地址需为有效的 http 或 https URL。", color = MaterialTheme.colorScheme.error)
-                models.isNotBlank() && parsedModels == null -> Text("模型 ID 不能为空，也不能重复。", color = MaterialTheme.colorScheme.error)
-                parsedModels.isNullOrEmpty() -> Text("请至少填写一个模型。", color = MaterialTheme.colorScheme.error)
-                parsedHeaders == null -> Text("Header 格式错误或名称重复。", color = MaterialTheme.colorScheme.error)
-                defaultModelRemoved -> Text("这会移除当前默认模型，请先切换默认模型。", color = MaterialTheme.colorScheme.error)
+                id.isNotBlank() && !idValid -> Text(stringResource(com.fioiu8.dshpocket.R.string.models_service_id_error), color = MaterialTheme.colorScheme.error)
+                baseUrl.isNotBlank() && !isHttpEndpoint(baseUrl) -> Text(stringResource(com.fioiu8.dshpocket.R.string.models_url_error), color = MaterialTheme.colorScheme.error)
+                models.isNotBlank() && parsedModels == null -> Text(stringResource(com.fioiu8.dshpocket.R.string.models_model_id_required), color = MaterialTheme.colorScheme.error)
+                parsedModels.isNullOrEmpty() -> Text(stringResource(com.fioiu8.dshpocket.R.string.models_no_valid_models), color = MaterialTheme.colorScheme.error)
+                parsedHeaders == null -> Text(stringResource(com.fioiu8.dshpocket.R.string.models_headers_error), color = MaterialTheme.colorScheme.error)
+                defaultModelRemoved -> Text(stringResource(com.fioiu8.dshpocket.R.string.models_remove_default_error), color = MaterialTheme.colorScheme.error)
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = {
                     onSave(ProviderDraft(id, displayName, baseUrl, api, apiKey, models, headers, modelDetails))
                 }, enabled = canSave) {
-                    Text(if (busy) "保存中…" else "保存")
+                    Text(if (busy) stringResource(com.fioiu8.dshpocket.R.string.saving) else stringResource(com.fioiu8.dshpocket.R.string.save))
                 }
             }
         }
@@ -1307,7 +1308,7 @@ private fun ProviderEditorPage(
     discoveredModels?.let { candidates ->
         AlertDialog(
             onDismissRequest = onDismissDiscoveredModels,
-            title = { Text("选择要添加的模型") },
+            title = { Text(stringResource(com.fioiu8.dshpocket.R.string.models_select_models_to_add)) },
             text = {
                 Column(Modifier.verticalScroll(rememberScrollState())) {
                     candidates.forEach { model ->
@@ -1337,7 +1338,7 @@ private fun ProviderEditorPage(
                                     }
                                     val contextWindow = model.optInt("contextWindow", 0)
                                     if (contextWindow > 0) Text(
-                                        "上下文 ${contextWindow}",
+                                        "Context ${contextWindow}",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
@@ -1352,10 +1353,10 @@ private fun ProviderEditorPage(
                     onClick = onApplyDiscoveredModels,
                     enabled = selectedDiscoveredModels.isNotEmpty(),
                     modifier = Modifier.dshControl(),
-                ) { Text("添加 ${selectedDiscoveredModels.size} 个") }
+                ) { Text(stringResource(com.fioiu8.dshpocket.R.string.models_add_count, selectedDiscoveredModels.size)) }
             },
             dismissButton = {
-                TextButton(onClick = onDismissDiscoveredModels, modifier = Modifier.dshControl()) { Text("取消") }
+                TextButton(onClick = onDismissDiscoveredModels, modifier = Modifier.dshControl()) { Text(stringResource(com.fioiu8.dshpocket.R.string.cancel)) }
             },
         )
     }
@@ -1422,6 +1423,6 @@ private fun RadioDialog(
             }
         },
         confirmButton = {},
-        dismissButton = { TextButton(onClick = onDismiss, modifier = Modifier.dshControl()) { Text("取消") } },
+        dismissButton = { TextButton(onClick = onDismiss, modifier = Modifier.dshControl()) { Text(stringResource(com.fioiu8.dshpocket.R.string.cancel)) } },
     )
 }
