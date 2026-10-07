@@ -2,6 +2,7 @@
 .gradle
 /local.properties
 /.idea/
+/.zcode/
 .DS_Store
 /build
 /docs/
