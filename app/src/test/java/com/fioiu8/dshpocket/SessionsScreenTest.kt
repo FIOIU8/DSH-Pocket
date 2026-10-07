@@ -9,13 +9,16 @@ import com.fioiu8.dshpocket.ui.parseNativeModelCatalog
 import com.fioiu8.dshpocket.ui.markdownToAnnotatedString
 import com.fioiu8.dshpocket.ui.assistantStreamSnapshotText
 import com.fioiu8.dshpocket.ui.parseProviderModels
+import com.fioiu8.dshpocket.ui.localized
 import com.fioiu8.dshpocket.capability.AgentBriefing
 import com.fioiu8.dshpocket.capability.CapabilitySnapshot
 import com.fioiu8.dshpocket.capability.CapabilityState
 import com.fioiu8.dshpocket.capability.CompanionStatus
+import com.fioiu8.dshpocket.capability.isInstalled
 import com.fioiu8.dshpocket.capability.ExecutionBackend
 import com.fioiu8.dshpocket.capability.ProcessExecutionCapability
 import org.json.JSONArray
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -151,6 +154,14 @@ class SessionsScreenTest {
         )
         assertNull(parseProviderModels("model-a\nmodel-a"))
         assertNull(parseProviderModels("|missing-id"))
+    }
+
+    @Test
+    fun pluginLocalizedTextFollowsConfiguredLanguageWithFallback() {
+        val value = JSONObject().put("zh-CN", "中文标题").put("en", "English title")
+        assertEquals("English title", localized(value, "en-US"))
+        assertEquals("中文标题", localized(value, "zh-CN"))
+        assertEquals("中文标题", localized(value, "fr-FR"))
     }
 
     @Test

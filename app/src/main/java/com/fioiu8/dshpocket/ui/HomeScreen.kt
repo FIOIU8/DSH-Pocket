@@ -38,8 +38,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.res.stringResource
 import com.fioiu8.dshpocket.engine.EngineApi
 import com.fioiu8.dshpocket.engine.EnginePaths
 import com.fioiu8.dshpocket.engine.EngineState
@@ -91,15 +93,15 @@ fun HomeScreen(
         ) {
             LatestSessionSection(state, onOpenChat)
 
-            SectionHeader("快捷入口")
+            SectionHeader(stringResource(com.fioiu8.dshpocket.R.string.home_quick_entries))
             QuickEntryList(onOpenChat, onOpenSessions, onOpenPlugins, onOpenModels)
 
-            SectionHeader("运行状态")
+            SectionHeader(stringResource(com.fioiu8.dshpocket.R.string.home_runtime_status))
             CoreStatusCard(state, now, onRestart)
 
             HorizontalDivider(Modifier.padding(vertical = 12.dp))
             Text(
-                text = "引擎与会话全部留在本机；数据是否离开设备，取决于你配置的模型服务地址。",
+                text = stringResource(com.fioiu8.dshpocket.R.string.home_local_privacy),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 16.dp),
@@ -108,16 +110,18 @@ fun HomeScreen(
     }
 }
 
+@Composable
 private fun subtitleFor(state: EngineState): String = when (state) {
-    is EngineState.Ready -> "本地运行 · 已连接"
-    is EngineState.Busy -> "正在启动 · ${state.message}"
-    is EngineState.Failed -> "引擎异常"
-    EngineState.Idle -> "引擎未启动"
+    is EngineState.Ready -> stringResource(com.fioiu8.dshpocket.R.string.home_node_running)
+    is EngineState.Busy -> stringResource(com.fioiu8.dshpocket.R.string.home_starting) + " · ${state.message}"
+    is EngineState.Failed -> stringResource(com.fioiu8.dshpocket.R.string.home_engine_error)
+    EngineState.Idle -> stringResource(com.fioiu8.dshpocket.R.string.home_engine_stopped)
 }
 
 /** 首页顶部的「最新会话」filled 卡（canvas home_latest）+「继续查看」tonal 按钮。 */
 @Composable
 private fun LatestSessionSection(state: EngineState, onOpenChat: () -> Unit) {
+    val context = LocalContext.current
     var latest by remember { mutableStateOf<LatestSession?>(null) }
 
     LaunchedEffect(state) {
@@ -138,7 +142,7 @@ private fun LatestSessionSection(state: EngineState, onOpenChat: () -> Unit) {
                             val values = item.optJSONObject("projections")?.optJSONObject("values")
                             val title = values?.optString("title")
                                 ?.takeIf { it.isNotBlank() && it != "null" }
-                                ?: "（无标题会话）"
+                                ?: context.getString(com.fioiu8.dshpocket.R.string.home_untitled_session)
                             add(
                                 LatestSession(
                                     title = title,
@@ -172,17 +176,17 @@ private fun LatestSessionSection(state: EngineState, onOpenChat: () -> Unit) {
                 )
                 Column {
                     Text(
-                        session?.title ?: "还没有会话",
+                        session?.title ?: stringResource(com.fioiu8.dshpocket.R.string.home_no_session),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
                     )
                     Text(
                         session?.let {
                             listOfNotNull(
-                                if (it.running) "进行中" else "已就绪",
-                                "${it.turns} 轮",
+                                if (it.running) stringResource(com.fioiu8.dshpocket.R.string.home_session_running) else stringResource(com.fioiu8.dshpocket.R.string.home_session_ready),
+                                stringResource(com.fioiu8.dshpocket.R.string.home_turns, it.turns),
                             ).joinToString(" · ")
-                        } ?: "到对话页发第一条消息即可开始",
+                        } ?: stringResource(com.fioiu8.dshpocket.R.string.home_start_session),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -196,7 +200,7 @@ private fun LatestSessionSection(state: EngineState, onOpenChat: () -> Unit) {
                 .dshControl(),
             shape = RoundedCornerShape(DshShapes.control),
         ) {
-            Text("继续查看")
+            Text(stringResource(com.fioiu8.dshpocket.R.string.home_continue))
             Icon(Icons.Filled.ChevronRight, contentDescription = null)
         }
     }
@@ -217,10 +221,10 @@ private fun QuickEntryList(
             .fillMaxWidth()
             .padding(horizontal = DshSpacing.page),
         items = listOf(
-            { QuickRow("新建对话", "开始一段新对话", Icons.Filled.Add, onOpenChat) },
-            { QuickRow("会话列表", "浏览与管理工作区会话", Icons.Filled.Forum, onOpenSessions) },
-            { QuickRow("插件管理", "安装、启用与配置插件", Icons.Filled.Extension, onOpenPlugins) },
-            { QuickRow("模型配置", "切换模型与 Agent 预设", Icons.Filled.Tune, onOpenModels) },
+            { QuickRow(stringResource(com.fioiu8.dshpocket.R.string.home_new_chat), stringResource(com.fioiu8.dshpocket.R.string.home_new_chat_supporting), Icons.Filled.Add, onOpenChat) },
+            { QuickRow(stringResource(com.fioiu8.dshpocket.R.string.home_session_list), stringResource(com.fioiu8.dshpocket.R.string.home_session_list_supporting), Icons.Filled.Forum, onOpenSessions) },
+            { QuickRow(stringResource(com.fioiu8.dshpocket.R.string.home_plugins), stringResource(com.fioiu8.dshpocket.R.string.home_plugins_supporting), Icons.Filled.Extension, onOpenPlugins) },
+            { QuickRow(stringResource(com.fioiu8.dshpocket.R.string.home_models), stringResource(com.fioiu8.dshpocket.R.string.home_models_supporting), Icons.Filled.Tune, onOpenModels) },
         ),
     )
 }
@@ -254,23 +258,23 @@ private fun CoreStatusCard(state: EngineState, now: Long, onRestart: () -> Unit)
     val detail: String
     when (state) {
         is EngineState.Ready -> {
-            title = "Node.js 运行中"
-            detail = "端口 ${EnginePaths.PORT} · 已运行 ${formatDuration(now - state.since)} · ABI ${RuntimeInstaller.BUNDLED_ABI}"
+            title = stringResource(com.fioiu8.dshpocket.R.string.home_node_running)
+            detail = stringResource(com.fioiu8.dshpocket.R.string.home_node_detail, EnginePaths.PORT, formatDuration(now - state.since), RuntimeInstaller.BUNDLED_ABI)
         }
 
         is EngineState.Busy -> {
-            title = "正在启动"
+            title = stringResource(com.fioiu8.dshpocket.R.string.home_starting)
             detail = state.message
         }
 
         is EngineState.Failed -> {
-            title = "引擎异常"
+            title = stringResource(com.fioiu8.dshpocket.R.string.home_engine_error)
             detail = state.message
         }
 
         EngineState.Idle -> {
-            title = "引擎未启动"
-            detail = "到对话页或这里重启引擎"
+            title = stringResource(com.fioiu8.dshpocket.R.string.home_engine_stopped)
+            detail = stringResource(com.fioiu8.dshpocket.R.string.home_restart_hint)
         }
     }
 
@@ -302,7 +306,7 @@ private fun CoreStatusCard(state: EngineState, now: Long, onRestart: () -> Unit)
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            TextButton(onClick = onRestart, modifier = Modifier.dshControl()) { Text("重启") }
+            TextButton(onClick = onRestart, modifier = Modifier.dshControl()) { Text(stringResource(com.fioiu8.dshpocket.R.string.restart)) }
         }
     }
 }

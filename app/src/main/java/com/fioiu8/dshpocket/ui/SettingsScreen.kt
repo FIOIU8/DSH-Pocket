@@ -31,6 +31,8 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
@@ -55,6 +57,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.res.stringResource
 import com.fioiu8.dshpocket.capability.CapabilitySnapshot
 import com.fioiu8.dshpocket.capability.CapabilityState
 import com.fioiu8.dshpocket.capability.CompanionStatus
@@ -72,14 +75,14 @@ import com.fioiu8.dshpocket.ui.theme.systemAnimationsEnabled
 
 enum class SettingsSection(
     val key: String,
-    val label: String,
-    val supporting: String,
+    @androidx.annotation.StringRes val labelRes: Int,
+    @androidx.annotation.StringRes val supportingRes: Int,
     val icon: ImageVector,
 ) {
-    Engine("engine", "引擎", "启动、停止本地核心并查看日志", Icons.Filled.Memory),
-    Core("core", "核心与能力", "模型、插件与设备权限", Icons.Filled.Tune),
-    Runtime("runtime", "运行时与工作区", "版本、空间占用与文件路径", Icons.Filled.Folder),
-    General("general", "通用", "外观、语言与版本信息", Icons.Filled.Info),
+    Engine("engine", com.fioiu8.dshpocket.R.string.settings_engine, com.fioiu8.dshpocket.R.string.settings_engine_supporting, Icons.Filled.Memory),
+    Core("core", com.fioiu8.dshpocket.R.string.settings_core, com.fioiu8.dshpocket.R.string.settings_core_supporting, Icons.Filled.Tune),
+    Runtime("runtime", com.fioiu8.dshpocket.R.string.settings_runtime, com.fioiu8.dshpocket.R.string.settings_runtime_supporting, Icons.Filled.Folder),
+    General("general", com.fioiu8.dshpocket.R.string.settings_general, com.fioiu8.dshpocket.R.string.settings_general_supporting, Icons.Filled.Info),
     ;
 
     companion object {
@@ -92,7 +95,7 @@ fun SettingsHomeScreen(
     onMenu: () -> Unit,
     onOpenSection: (SettingsSection) -> Unit,
 ) {
-    Scaffold(topBar = { DshTopAppBar(title = "设置", onMenu = onMenu) }) { padding ->
+    Scaffold(topBar = { DshTopAppBar(title = stringResource(com.fioiu8.dshpocket.R.string.nav_settings), onMenu = onMenu) }) { padding ->
         Column(
             Modifier
                 .fillMaxSize()
@@ -101,7 +104,7 @@ fun SettingsHomeScreen(
             verticalArrangement = Arrangement.spacedBy(DshSpacing.compact),
         ) {
             Text(
-                "按用途整理本地核心与应用偏好",
+                stringResource(com.fioiu8.dshpocket.R.string.settings_intro),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = DshSpacing.page, vertical = DshSpacing.section),
@@ -123,13 +126,13 @@ fun SettingsHomeScreen(
 @Composable
 private fun SettingsCategoryRow(section: SettingsSection, onClick: () -> Unit) {
     ListItem(
-        headlineContent = { Text(section.label) },
-        supportingContent = { Text(section.supporting) },
+        headlineContent = { Text(stringResource(section.labelRes)) },
+        supportingContent = { Text(stringResource(section.supportingRes)) },
         leadingContent = {
             Icon(section.icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
         },
         trailingContent = {
-            Icon(Icons.Filled.ChevronRight, contentDescription = "打开${section.label}")
+            Icon(Icons.Filled.ChevronRight, contentDescription = stringResource(com.fioiu8.dshpocket.R.string.settings_open_section, stringResource(section.labelRes)))
         },
         modifier = Modifier.heightIn(min = DshSpacing.touchTarget).clickable(onClick = onClick),
     )
@@ -151,6 +154,8 @@ fun SettingsDetailScreen(
     onGrantAllFiles: () -> Unit,
     onRestart: () -> Unit,
     onStop: () -> Unit,
+    language: AppLanguage,
+    onLanguageChange: (AppLanguage) -> Unit,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -160,6 +165,7 @@ fun SettingsDetailScreen(
     var nodeVersion by remember { mutableStateOf<String?>(null) }
     var workspacePath by remember { mutableStateOf("") }
     var showLog by remember { mutableStateOf(false) }
+    var showLanguageDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         val root = EnginePaths.root(context)
@@ -172,7 +178,7 @@ fun SettingsDetailScreen(
     }
 
     Scaffold(
-        topBar = { DshTopAppBar(title = section.label, onMenu = onBack, onBack = onBack) },
+        topBar = { DshTopAppBar(title = stringResource(section.labelRes), onMenu = onBack, onBack = onBack) },
     ) { padding ->
         Column(
             Modifier
@@ -183,7 +189,7 @@ fun SettingsDetailScreen(
         ) {
             when (section) {
                 SettingsSection.Engine -> {
-                    SectionHeader("核心状态")
+                    SectionHeader(stringResource(com.fioiu8.dshpocket.R.string.settings_core_status))
                     EngineCard(state, showLog, onRestart, onStop) { showLog = !showLog }
                     AnimatedVisibility(
                         visible = showLog,
@@ -193,48 +199,48 @@ fun SettingsDetailScreen(
                             shrinkVertically(animationSpec = dshSpring(animationsEnabled)),
                     ) {
                         Column {
-                            SectionHeader("引擎日志")
+                            SectionHeader(stringResource(com.fioiu8.dshpocket.R.string.settings_engine_log))
                             LogPanel(log, Modifier.fillMaxWidth())
                         }
                     }
                 }
                 SettingsSection.Core -> {
-                    SectionHeader("核心入口")
+                    SectionHeader(stringResource(com.fioiu8.dshpocket.R.string.settings_core_entry))
                     GroupedList(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = DshSpacing.page),
                         items = listOf(
-                            { SectionRow("模型配置", "切换模型与 Agent 预设", Icons.Filled.Tune, onOpenModels) },
-                            { SectionRow("插件管理", "安装、启用与配置插件", Icons.Filled.Extension, onOpenPlugins) },
+                            { SectionRow(stringResource(com.fioiu8.dshpocket.R.string.nav_models), stringResource(com.fioiu8.dshpocket.R.string.home_models_supporting), Icons.Filled.Tune, onOpenModels) },
+                            { SectionRow(stringResource(com.fioiu8.dshpocket.R.string.nav_plugins), stringResource(com.fioiu8.dshpocket.R.string.home_plugins_supporting), Icons.Filled.Extension, onOpenPlugins) },
                         ),
                     )
-                    SectionHeader("设备能力")
+                    SectionHeader(stringResource(com.fioiu8.dshpocket.R.string.settings_device_capabilities))
                     CapabilityCard(capabilities, onGrantAllFiles)
-                    HelperText("引擎默认以 DSH Pocket 自身权限运行。安装 Termux 或 Shizuku 不会自动开放命令执行；连接执行桥后才会更新能力状态。")
+                    HelperText(stringResource(com.fioiu8.dshpocket.R.string.settings_engine_default_permission))
                 }
                 SettingsSection.Runtime -> {
-                    SectionHeader("运行时")
+                    SectionHeader(stringResource(com.fioiu8.dshpocket.R.string.settings_runtime_section))
                     GroupedList(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = DshSpacing.page),
                         items = listOf(
-                            { KeyValueRow("内置 ABI", RuntimeInstaller.BUNDLED_ABI) },
-                            { KeyValueRow("设备 ABI", Build.SUPPORTED_ABIS.joinToString(", ")) },
-                            { KeyValueRow("Node", nodeVersion ?: "读取中…") },
-                            { KeyValueRow("DSH", dshVersion ?: "读取中…") },
-                            { KeyValueRow("占用空间", runtimeSize?.let { "%.0f MB".format(it / 1024.0 / 1024.0) } ?: "统计中…") },
-                            { KeyValueRow("路径", EnginePaths.root(context).absolutePath) },
+                            { KeyValueRow(stringResource(com.fioiu8.dshpocket.R.string.settings_bundled_abi), RuntimeInstaller.BUNDLED_ABI) },
+                            { KeyValueRow(stringResource(com.fioiu8.dshpocket.R.string.settings_device_abi), Build.SUPPORTED_ABIS.joinToString(", ")) },
+                            { KeyValueRow(stringResource(com.fioiu8.dshpocket.R.string.settings_node), nodeVersion ?: stringResource(com.fioiu8.dshpocket.R.string.loading)) },
+                            { KeyValueRow(stringResource(com.fioiu8.dshpocket.R.string.settings_dsh), dshVersion ?: stringResource(com.fioiu8.dshpocket.R.string.loading)) },
+                            { KeyValueRow(stringResource(com.fioiu8.dshpocket.R.string.settings_storage), runtimeSize?.let { "%.0f MB".format(it / 1024.0 / 1024.0) } ?: stringResource(com.fioiu8.dshpocket.R.string.loading)) },
+                            { KeyValueRow(stringResource(com.fioiu8.dshpocket.R.string.settings_path), EnginePaths.root(context).absolutePath) },
                         ),
                     )
-                    SectionHeader("工作区")
+                    SectionHeader(stringResource(com.fioiu8.dshpocket.R.string.settings_workspace))
                     GroupedList(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = DshSpacing.page),
-                        items = listOf { KeyValueRow("当前", workspacePath.ifBlank { "读取中…" }) },
+                        items = listOf { KeyValueRow(stringResource(com.fioiu8.dshpocket.R.string.settings_current), workspacePath.ifBlank { stringResource(com.fioiu8.dshpocket.R.string.loading) }) },
                     )
-                    HelperText("agent 在这里读写文件。授予所有文件访问后，工作区会切到 ${EnginePaths.SHARED_WORKSPACE}，需重启引擎生效。")
+                    HelperText(stringResource(com.fioiu8.dshpocket.R.string.settings_shared_workspace_hint, EnginePaths.SHARED_WORKSPACE))
                 }
                 SettingsSection.General -> {
-                    SectionHeader("应用偏好")
+                    SectionHeader(stringResource(com.fioiu8.dshpocket.R.string.settings_preferences))
                     Text(
-                        "对话界面",
+                        stringResource(com.fioiu8.dshpocket.R.string.settings_chat_interface),
                         style = MaterialTheme.typography.titleSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(horizontal = DshSpacing.page, vertical = DshSpacing.compact),
@@ -251,20 +257,20 @@ fun SettingsDetailScreen(
                                 shape = SegmentedButtonDefaults.itemShape(index, ChatPresentation.entries.size),
                                 modifier = Modifier.heightIn(min = DshSpacing.controlHeight),
                             ) {
-                                Text(presentation.label)
+                                Text(stringResource(presentation.labelRes))
                             }
                         }
                     }
-                    HelperText("网页对话保留 DSH 原版界面；原生对话由 DSH Pocket 渲染。切换不会删除会话。")
-                    HelperText("启用提供 dshPocketUi/getNativeChatTheme 的 DSH 插件，可定制原生对话气泡颜色、圆角和字号。")
-                    SectionHeader("原生对话信息")
+                    HelperText(stringResource(com.fioiu8.dshpocket.R.string.settings_chat_interface_hint))
+                    HelperText(stringResource(com.fioiu8.dshpocket.R.string.settings_native_theme_hint))
+                    SectionHeader(stringResource(com.fioiu8.dshpocket.R.string.settings_native_chat_info))
                     GroupedList(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = DshSpacing.page),
                         items = listOf(
                             {
                                 ChatPreferenceRow(
-                                    title = "消息时间",
-                                    supporting = "显示每条消息的发送或生成时间",
+                                    title = stringResource(com.fioiu8.dshpocket.R.string.settings_message_time),
+                                    supporting = stringResource(com.fioiu8.dshpocket.R.string.settings_message_time_supporting),
                                     icon = Icons.Filled.Schedule,
                                     checked = nativeChatPreferences.showMessageTime,
                                     onCheckedChange = {
@@ -274,8 +280,8 @@ fun SettingsDetailScreen(
                             },
                             {
                                 ChatPreferenceRow(
-                                    title = "Token 与速度",
-                                    supporting = "显示输入、输出 token 和生成速度（引擎提供时）",
+                                    title = stringResource(com.fioiu8.dshpocket.R.string.settings_tokens),
+                                    supporting = stringResource(com.fioiu8.dshpocket.R.string.settings_tokens_supporting),
                                     icon = Icons.Filled.DataUsage,
                                     checked = nativeChatPreferences.showTokenUsage,
                                     onCheckedChange = {
@@ -285,8 +291,8 @@ fun SettingsDetailScreen(
                             },
                             {
                                 ChatPreferenceRow(
-                                    title = "时间消耗",
-                                    supporting = "显示本次回答耗时（引擎提供时）",
+                                    title = stringResource(com.fioiu8.dshpocket.R.string.settings_duration),
+                                    supporting = stringResource(com.fioiu8.dshpocket.R.string.settings_duration_supporting),
                                     icon = Icons.Filled.Schedule,
                                     checked = nativeChatPreferences.showDuration,
                                     onCheckedChange = {
@@ -296,8 +302,8 @@ fun SettingsDetailScreen(
                             },
                             {
                                 ChatPreferenceRow(
-                                    title = "辅助回答",
-                                    supporting = "允许基于当前上下文继续生成补充内容，会增加 token 消耗",
+                                    title = stringResource(com.fioiu8.dshpocket.R.string.settings_assist_reply),
+                                    supporting = stringResource(com.fioiu8.dshpocket.R.string.settings_assist_reply_supporting),
                                     icon = Icons.Filled.AutoAwesome,
                                     checked = nativeChatPreferences.showAssistReply,
                                     onCheckedChange = {
@@ -307,28 +313,29 @@ fun SettingsDetailScreen(
                             },
                         ),
                     )
-                    HelperText("时间、token 和耗时没有对应数据时会自动隐藏。辅助回答只在你点击后发送请求。")
+                    HelperText(stringResource(com.fioiu8.dshpocket.R.string.settings_native_chat_info_hint))
                     GroupedList(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = DshSpacing.page),
                         items = listOf(
                             {
                                 ListItem(
-                                    headlineContent = { Text("外观") },
-                                    supportingContent = { Text("跟随系统 · 中性双色 Material 3") },
+                                    headlineContent = { Text(stringResource(com.fioiu8.dshpocket.R.string.settings_appearance)) },
+                                    supportingContent = { Text(stringResource(com.fioiu8.dshpocket.R.string.settings_appearance_supporting)) },
                                     leadingContent = { Icon(Icons.Filled.Palette, contentDescription = null) },
                                 )
                             },
                             {
                                 ListItem(
-                                    headlineContent = { Text("语言") },
-                                    supportingContent = { Text("简体中文") },
+                                    headlineContent = { Text(stringResource(com.fioiu8.dshpocket.R.string.settings_language)) },
+                                    supportingContent = { Text(languageLabel(language)) },
                                     leadingContent = { Icon(Icons.Filled.Info, contentDescription = null) },
+                                    modifier = Modifier.clickable { showLanguageDialog = true },
                                 )
                             },
                             {
                                 ListItem(
-                                    headlineContent = { Text("关于 DSH Pocket") },
-                                    supportingContent = { Text("v1.0 · MIT · 本地引擎运行时") },
+                                    headlineContent = { Text(stringResource(com.fioiu8.dshpocket.R.string.settings_about)) },
+                                    supportingContent = { Text(stringResource(com.fioiu8.dshpocket.R.string.settings_about_supporting)) },
                                     leadingContent = { Icon(Icons.Filled.Memory, contentDescription = null) },
                                 )
                             },
@@ -338,6 +345,44 @@ fun SettingsDetailScreen(
             }
         }
     }
+
+    if (showLanguageDialog) {
+        AlertDialog(
+            onDismissRequest = { showLanguageDialog = false },
+            title = { Text(stringResource(com.fioiu8.dshpocket.R.string.language_dialog_title)) },
+            text = {
+                Column {
+                    AppLanguage.entries.forEach { option ->
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    showLanguageDialog = false
+                                    onLanguageChange(option)
+                                }
+                                .padding(vertical = 6.dp),
+                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                        ) {
+                            RadioButton(selected = language == option, onClick = {
+                                showLanguageDialog = false
+                                onLanguageChange(option)
+                            })
+                            Text(languageLabel(option))
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = { TextButton(onClick = { showLanguageDialog = false }) { Text(stringResource(com.fioiu8.dshpocket.R.string.cancel)) } },
+        )
+    }
+}
+
+@Composable
+private fun languageLabel(language: AppLanguage): String = when (language) {
+    AppLanguage.SYSTEM -> stringResource(com.fioiu8.dshpocket.R.string.language_system)
+    AppLanguage.ZH_CN -> stringResource(com.fioiu8.dshpocket.R.string.language_zh_cn)
+    AppLanguage.EN -> stringResource(com.fioiu8.dshpocket.R.string.language_en)
 }
 
 @Composable
@@ -373,10 +418,10 @@ private fun HelperText(text: String) {
 private fun EngineCard(state: EngineState, showLog: Boolean, onRestart: () -> Unit, onStop: () -> Unit, onToggleLog: () -> Unit) {
     val animationsEnabled = systemAnimationsEnabled()
     val statusText = when (state) {
-        is EngineState.Ready -> "运行中 · ${state.baseUrl} · 已运行 ${formatDuration(System.currentTimeMillis() - state.since)}"
-        is EngineState.Busy -> "启动中 · ${state.message}"
-        is EngineState.Failed -> "失败 · ${state.message}"
-        EngineState.Idle -> "未启动"
+        is EngineState.Ready -> stringResource(com.fioiu8.dshpocket.R.string.settings_status_running, state.baseUrl, formatDuration(System.currentTimeMillis() - state.since))
+        is EngineState.Busy -> stringResource(com.fioiu8.dshpocket.R.string.settings_status_starting, state.message)
+        is EngineState.Failed -> stringResource(com.fioiu8.dshpocket.R.string.settings_status_failed, state.message)
+        EngineState.Idle -> stringResource(com.fioiu8.dshpocket.R.string.settings_status_stopped)
     }
     Card(
         Modifier
@@ -388,7 +433,7 @@ private fun EngineCard(state: EngineState, showLog: Boolean, onRestart: () -> Un
     ) {
         Column(Modifier.padding(vertical = 8.dp)) {
             ListItem(
-                headlineContent = { Text("本地核心", fontWeight = FontWeight.SemiBold) },
+                headlineContent = { Text(stringResource(com.fioiu8.dshpocket.R.string.settings_local_core), fontWeight = FontWeight.SemiBold) },
                 supportingContent = { Text(statusText) },
                 leadingContent = {
                     Icon(
@@ -405,9 +450,9 @@ private fun EngineCard(state: EngineState, showLog: Boolean, onRestart: () -> Un
                     .padding(horizontal = 16.dp, vertical = 4.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                TextButton(onClick = onRestart, modifier = Modifier.dshControl()) { Text("重启") }
-                TextButton(onClick = onStop, modifier = Modifier.dshControl()) { Text("停止") }
-                TextButton(onClick = onToggleLog, modifier = Modifier.dshControl()) { Text(if (showLog) "收起日志" else "查看日志") }
+                TextButton(onClick = onRestart, modifier = Modifier.dshControl()) { Text(stringResource(com.fioiu8.dshpocket.R.string.restart)) }
+                TextButton(onClick = onStop, modifier = Modifier.dshControl()) { Text(stringResource(com.fioiu8.dshpocket.R.string.settings_stop)) }
+                TextButton(onClick = onToggleLog, modifier = Modifier.dshControl()) { Text(if (showLog) stringResource(com.fioiu8.dshpocket.R.string.settings_hide_log) else stringResource(com.fioiu8.dshpocket.R.string.settings_view_log)) }
             }
         }
     }
@@ -447,21 +492,21 @@ fun CapabilityCard(capabilities: CapabilitySnapshot, onGrantAllFiles: () -> Unit
         Column(Modifier.padding(vertical = 8.dp)) {
             CapabilityRow(
                 title = "所有文件访问",
-                supporting = "授予后 agent 才能操作手机上的真实文件，工作区也会切到共享存储。",
+                supporting = stringResource(com.fioiu8.dshpocket.R.string.settings_all_files_supporting),
                 capabilityState = capabilities.allFiles,
-                actionLabel = "去授权",
+                actionLabel = stringResource(com.fioiu8.dshpocket.R.string.capability_grant),
                 onAction = onGrantAllFiles,
             )
             HorizontalDivider(Modifier.padding(horizontal = 16.dp))
             CompanionCapabilityRow(
                 title = "Termux",
-                supporting = "提供 Linux 用户态；安装不会自动开放命令执行，DSH Pocket 当前尚未接入 Termux 执行桥。",
+                supporting = stringResource(com.fioiu8.dshpocket.R.string.settings_termux_supporting),
                 status = capabilities.termux,
             )
             HorizontalDivider(Modifier.padding(horizontal = 16.dp))
             CompanionCapabilityRow(
                 title = "Shizuku",
-                supporting = "可提供进程授权；DSH Pocket 当前尚未连接 Shizuku 服务或执行桥。",
+                supporting = stringResource(com.fioiu8.dshpocket.R.string.settings_shizuku_supporting),
                 status = capabilities.shizuku,
             )
             HorizontalDivider(Modifier.padding(horizontal = 16.dp))
@@ -473,12 +518,12 @@ fun CapabilityCard(capabilities: CapabilitySnapshot, onGrantAllFiles: () -> Unit
 @Composable
 private fun CompanionCapabilityRow(title: String, supporting: String, status: CompanionStatus) {
     val label = when (status) {
-        CompanionStatus.NOT_INSTALLED -> "未安装"
-        CompanionStatus.INSTALLED -> "已安装，尚未授权或连接"
-        CompanionStatus.AUTHORIZED -> "已授权，等待服务运行"
-        CompanionStatus.RUNNING -> "运行中，执行桥未连接"
-        CompanionStatus.BRIDGE_CONNECTED -> "执行桥已连接"
-        CompanionStatus.UNSUPPORTED -> "当前设备不支持"
+        CompanionStatus.NOT_INSTALLED -> stringResource(com.fioiu8.dshpocket.R.string.capability_not_installed)
+        CompanionStatus.INSTALLED -> stringResource(com.fioiu8.dshpocket.R.string.capability_installed_waiting)
+        CompanionStatus.AUTHORIZED -> stringResource(com.fioiu8.dshpocket.R.string.capability_authorized_waiting)
+        CompanionStatus.RUNNING -> stringResource(com.fioiu8.dshpocket.R.string.capability_running_disconnected)
+        CompanionStatus.BRIDGE_CONNECTED -> stringResource(com.fioiu8.dshpocket.R.string.capability_bridge_connected)
+        CompanionStatus.UNSUPPORTED -> stringResource(com.fioiu8.dshpocket.R.string.capability_unsupported)
     }
     val color = when (status) {
         CompanionStatus.BRIDGE_CONNECTED -> MaterialTheme.colorScheme.primary
@@ -506,18 +551,18 @@ private fun ProcessExecutionRow(capabilities: CapabilitySnapshot) {
         Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = DshSpacing.rowVertical),
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        Text("Shell 命令执行", style = MaterialTheme.typography.titleSmall)
+        Text(stringResource(com.fioiu8.dshpocket.R.string.settings_shell_execution), style = MaterialTheme.typography.titleSmall)
         Text(
             reason ?: if (available) {
-                "通过 ${(execution as ProcessExecutionCapability.Available).backend.displayName} 提供。"
+                stringResource(com.fioiu8.dshpocket.R.string.settings_shell_supporting, (execution as ProcessExecutionCapability.Available).backend.displayName)
             } else {
-                "尚未连接 Termux 或 Shizuku 执行桥。"
+                stringResource(com.fioiu8.dshpocket.R.string.settings_shell_unavailable)
             },
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Text(
-            if (available) "可用" else "不可用",
+            if (available) stringResource(com.fioiu8.dshpocket.R.string.capability_available_label) else stringResource(com.fioiu8.dshpocket.R.string.capability_unavailable_label),
             style = MaterialTheme.typography.labelMedium,
             color = if (available) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -563,10 +608,11 @@ private fun CapabilityRow(
     }
 }
 
+@Composable
 fun CapabilityState.label(): String = when (this) {
-    CapabilityState.GRANTED -> "已具备"
-    CapabilityState.AVAILABLE -> "可申请"
-    CapabilityState.INSTALLED -> "已安装，待连接"
-    CapabilityState.NOT_INSTALLED -> "未安装"
-    CapabilityState.UNSUPPORTED -> "当前系统不支持"
+    CapabilityState.GRANTED -> stringResource(com.fioiu8.dshpocket.R.string.capability_granted)
+    CapabilityState.AVAILABLE -> stringResource(com.fioiu8.dshpocket.R.string.capability_available)
+    CapabilityState.INSTALLED -> stringResource(com.fioiu8.dshpocket.R.string.capability_installed_pending)
+    CapabilityState.NOT_INSTALLED -> stringResource(com.fioiu8.dshpocket.R.string.capability_not_installed)
+    CapabilityState.UNSUPPORTED -> stringResource(com.fioiu8.dshpocket.R.string.capability_system_unsupported)
 }

@@ -49,6 +49,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -69,11 +70,11 @@ import com.fioiu8.dshpocket.ui.theme.DshSpacing
  * 因此由这两次写操作的回包在本地维护归档集合。新建/重命名/分叉仍由官方 Web UI
  * 承载（D1：原生只做高频子集），点击条目跳到对话页。
  */
-private enum class SessionFilter(val label: String) {
-    All("全部"),
-    Running("进行中"),
-    Finished("已完成"),
-    Archived("已归档"),
+private enum class SessionFilter(val labelRes: Int) {
+    All(com.fioiu8.dshpocket.R.string.sessions_all),
+    Running(com.fioiu8.dshpocket.R.string.sessions_running),
+    Finished(com.fioiu8.dshpocket.R.string.sessions_finished),
+    Archived(com.fioiu8.dshpocket.R.string.sessions_archived),
 }
 
 data class SessionRow(
@@ -90,6 +91,7 @@ data class SessionRow(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SessionsScreen(state: EngineState, onMenu: () -> Unit, onOpenChat: () -> Unit) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     val ready = state as? EngineState.Ready
     var rows by remember { mutableStateOf<List<SessionRow>?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -134,6 +136,7 @@ fun SessionsScreen(state: EngineState, onMenu: () -> Unit, onOpenChat: () -> Uni
                 load(
                     state.baseUrl,
                     state.token,
+                    context.getString(com.fioiu8.dshpocket.R.string.home_untitled_session),
                     onLoaded = { rows = it; error = null },
                     onFailed = { error = it },
                 )
@@ -150,6 +153,7 @@ fun SessionsScreen(state: EngineState, onMenu: () -> Unit, onOpenChat: () -> Uni
                 load(
                     s.baseUrl,
                     s.token,
+                    context.getString(com.fioiu8.dshpocket.R.string.home_untitled_session),
                     onLoaded = { rows = it; error = null },
                     onFailed = { error = it },
                 )
@@ -161,17 +165,17 @@ fun SessionsScreen(state: EngineState, onMenu: () -> Unit, onOpenChat: () -> Uni
     Scaffold(
         topBar = {
             DshTopAppBar(
-                title = "会话管理",
+                title = stringResource(com.fioiu8.dshpocket.R.string.nav_sessions),
                 onMenu = onMenu,
                 actions = {
                     IconButton(onClick = {
                         searchActive = !searchActive
                         if (!searchActive) query = ""
                     }, modifier = Modifier.size(DshSpacing.touchTarget)) {
-                        Icon(Icons.Filled.Search, contentDescription = "搜索", modifier = Modifier.size(DshSpacing.icon))
+                        Icon(Icons.Filled.Search, contentDescription = stringResource(com.fioiu8.dshpocket.R.string.search), modifier = Modifier.size(DshSpacing.icon))
                     }
                     IconButton(onClick = { refresh() }, modifier = Modifier.size(DshSpacing.touchTarget)) {
-                        Icon(Icons.Filled.Refresh, contentDescription = "刷新", modifier = Modifier.size(DshSpacing.icon))
+                        Icon(Icons.Filled.Refresh, contentDescription = stringResource(com.fioiu8.dshpocket.R.string.refresh), modifier = Modifier.size(DshSpacing.icon))
                     }
                 },
             )
@@ -186,12 +190,12 @@ fun SessionsScreen(state: EngineState, onMenu: () -> Unit, onOpenChat: () -> Uni
                         .fillMaxWidth()
                     .padding(horizontal = DshSpacing.page, vertical = DshSpacing.compact),
                     singleLine = true,
-                    placeholder = { Text("按标题搜索") },
+                    placeholder = { Text(stringResource(com.fioiu8.dshpocket.R.string.sessions_search_placeholder)) },
                     leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
                     trailingIcon = {
                         if (query.isNotEmpty()) {
                             IconButton(onClick = { query = "" }, modifier = Modifier.size(DshSpacing.touchTarget)) {
-                                Icon(Icons.Filled.Close, contentDescription = "清空", modifier = Modifier.size(DshSpacing.icon))
+                                Icon(Icons.Filled.Close, contentDescription = stringResource(com.fioiu8.dshpocket.R.string.clear), modifier = Modifier.size(DshSpacing.icon))
                             }
                         }
                     },
@@ -210,7 +214,7 @@ fun SessionsScreen(state: EngineState, onMenu: () -> Unit, onOpenChat: () -> Uni
                         shape = SegmentedButtonDefaults.itemShape(index = index, count = SessionFilter.entries.size),
                         modifier = Modifier.heightIn(min = DshSpacing.controlHeight),
                     ) {
-                        Text(entry.label)
+                        Text(stringResource(entry.labelRes))
                     }
                 }
             }
@@ -218,16 +222,16 @@ fun SessionsScreen(state: EngineState, onMenu: () -> Unit, onOpenChat: () -> Uni
             val visible = rows
             when {
                 state !is EngineState.Ready -> CenteredMessage(
-                    title = "引擎未就绪",
-                    body = (state as? EngineState.Busy)?.message ?: "启动引擎后即可管理会话。",
+                    title = stringResource(com.fioiu8.dshpocket.R.string.engine_not_ready),
+                    body = (state as? EngineState.Busy)?.message ?: stringResource(com.fioiu8.dshpocket.R.string.engine_start_to_manage_sessions),
                     busy = state is EngineState.Busy,
                 )
 
-                error != null -> CenteredMessage("会话列表加载失败", "$error\n下拉或点右上角刷新重试。", busy = false)
-                visible == null -> CenteredMessage("加载中", "", busy = true)
+                error != null -> CenteredMessage(stringResource(com.fioiu8.dshpocket.R.string.sessions_load_failed), "$error\n${stringResource(com.fioiu8.dshpocket.R.string.sessions_refresh_hint)}", busy = false)
+                visible == null -> CenteredMessage(stringResource(com.fioiu8.dshpocket.R.string.loading), "", busy = true)
                 visible.isEmpty() -> CenteredMessage(
-                    title = "还没有会话",
-                    body = "到对话页发第一条消息即可创建。",
+                    title = stringResource(com.fioiu8.dshpocket.R.string.sessions_empty),
+                    body = stringResource(com.fioiu8.dshpocket.R.string.sessions_empty_hint),
                     busy = false,
                 )
 
@@ -242,19 +246,20 @@ fun SessionsScreen(state: EngineState, onMenu: () -> Unit, onOpenChat: () -> Uni
                         } && (query.isBlank() || row.title.contains(query, ignoreCase = true))
                     }
                     if (filtered.isEmpty()) {
-                        CenteredMessage("没有匹配的会话", "", busy = false)
+                        CenteredMessage(stringResource(com.fioiu8.dshpocket.R.string.sessions_no_match), "", busy = false)
                     } else {
+                        val defaultWorkspace = stringResource(com.fioiu8.dshpocket.R.string.sessions_default_workspace)
                         PullToRefreshBox(
                             isRefreshing = refreshing,
                             onRefresh = refresh,
                             modifier = Modifier.fillMaxSize(),
                         ) {
                             LazyColumn(Modifier.fillMaxSize()) {
-                                val groups = filtered.groupBy { it.cwd?.substringAfterLast('/') ?: "默认工作区" }
+                                val groups = filtered.groupBy { it.cwd?.substringAfterLast('/') ?: defaultWorkspace }
                                 groups.forEach { (workspace, items) ->
                                     item(key = "header-$workspace") {
                                         Text(
-                                            "工作区：$workspace",
+                                            stringResource(com.fioiu8.dshpocket.R.string.sessions_workspace, workspace),
                                             style = MaterialTheme.typography.titleSmall,
                                             fontWeight = FontWeight.Bold,
                                              modifier = Modifier.padding(start = DshSpacing.page, top = 16.dp, bottom = 8.dp),
@@ -291,8 +296,8 @@ fun SessionsScreen(state: EngineState, onMenu: () -> Unit, onOpenChat: () -> Uni
     pendingArchive?.let { row ->
         AlertDialog(
             onDismissRequest = { if (!archiving) pendingArchive = null },
-            title = { Text("归档会话") },
-            text = { Text("「${row.title}」会从列表移入归档，数据保留，可随时找回。") },
+            title = { Text(stringResource(com.fioiu8.dshpocket.R.string.sessions_archive)) },
+            text = { Text(stringResource(com.fioiu8.dshpocket.R.string.sessions_archive_message, row.title)) },
             confirmButton = {
                 TextButton(enabled = !archiving, onClick = {
                     val s = ready ?: return@TextButton
@@ -315,10 +320,10 @@ fun SessionsScreen(state: EngineState, onMenu: () -> Unit, onOpenChat: () -> Uni
                         }
                         refresh()
                     }
-                }) { Text(if (archiving) "归档中…" else "归档") }
+                }) { Text(if (archiving) stringResource(com.fioiu8.dshpocket.R.string.sessions_archiving) else stringResource(com.fioiu8.dshpocket.R.string.sessions_archive)) }
             },
             dismissButton = {
-                TextButton(onClick = { pendingArchive = null }) { Text("取消") }
+                TextButton(onClick = { pendingArchive = null }) { Text(stringResource(com.fioiu8.dshpocket.R.string.cancel)) }
             },
         )
     }
@@ -338,6 +343,7 @@ internal fun archivedIdsFromValues(values: List<String>?): Set<String>? = values
 private suspend fun load(
     baseUrl: String,
     token: String,
+    untitledTitle: String,
     onLoaded: (List<SessionRow>) -> Unit,
     onFailed: (String) -> Unit,
 ) {
@@ -348,12 +354,12 @@ private suspend fun load(
         token,
     )
     when (result) {
-        is RpcResult.Ok -> onLoaded(parseRows(EngineApi.itemsOf(result.value)))
+        is RpcResult.Ok -> onLoaded(parseRows(EngineApi.itemsOf(result.value), untitledTitle))
         is RpcResult.Err -> onFailed("${result.code}: ${result.message}")
     }
 }
 
-private fun parseRows(items: org.json.JSONArray): List<SessionRow> = buildList {
+private fun parseRows(items: org.json.JSONArray, untitledTitle: String = "（无标题会话）"): List<SessionRow> = buildList {
     for (i in 0 until items.length()) {
         val item = items.optJSONObject(i) ?: continue
         // blank = 刚创建还没有消息（官方 Web UI 打开时也会自动建一个）；跳过。
@@ -364,7 +370,7 @@ private fun parseRows(items: org.json.JSONArray): List<SessionRow> = buildList {
         // JSON null 经 optString 会变成字符串 "null"，与缺失一并按无标题处理。
         val title = values?.optString("title")
             ?.takeIf { it.isNotBlank() && it != "null" }
-            ?: "（无标题会话）"
+            ?: untitledTitle
         add(
             SessionRow(
                 id = item.optString("sessionId"),
@@ -392,9 +398,9 @@ private fun SessionRowItem(
     var menuOpen by remember { mutableStateOf(false) }
     val colors = MaterialTheme.colorScheme
     val (statusIcon, statusLabel, circleColor, iconTint) = when {
-        archived -> Quad(Icons.Filled.Archive, "已归档", colors.surfaceVariant, colors.onSurfaceVariant)
-        row.running -> Quad(Icons.AutoMirrored.Filled.Chat, "进行中", colors.primary, colors.onPrimary)
-        else -> Quad(Icons.Filled.Check, "已完成", colors.primary, colors.onPrimary)
+        archived -> Quad(Icons.Filled.Archive, stringResource(com.fioiu8.dshpocket.R.string.sessions_archived), colors.surfaceVariant, colors.onSurfaceVariant)
+        row.running -> Quad(Icons.AutoMirrored.Filled.Chat, stringResource(com.fioiu8.dshpocket.R.string.sessions_running), colors.primary, colors.onPrimary)
+        else -> Quad(Icons.Filled.Check, stringResource(com.fioiu8.dshpocket.R.string.sessions_finished), colors.primary, colors.onPrimary)
     }
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -423,7 +429,7 @@ private fun SessionRowItem(
             Text(
                 listOfNotNull(
                     statusLabel,
-                    "${row.steps} 步",
+                    stringResource(com.fioiu8.dshpocket.R.string.sessions_steps, row.steps),
                     relativeTime(row.updatedAt),
                 ).joinToString(" · "),
                 style = MaterialTheme.typography.bodySmall,
@@ -434,11 +440,11 @@ private fun SessionRowItem(
         }
         Box {
             IconButton(onClick = { menuOpen = true }, modifier = Modifier.size(DshSpacing.touchTarget)) {
-                Icon(Icons.Filled.MoreVert, contentDescription = "更多操作", modifier = Modifier.size(DshSpacing.icon))
+                Icon(Icons.Filled.MoreVert, contentDescription = stringResource(com.fioiu8.dshpocket.R.string.more_actions), modifier = Modifier.size(DshSpacing.icon))
             }
             DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                 DropdownMenuItem(
-                    text = { Text("打开") },
+                    text = { Text(stringResource(com.fioiu8.dshpocket.R.string.open)) },
                     onClick = {
                         menuOpen = false
                         onOpen()
@@ -447,7 +453,7 @@ private fun SessionRowItem(
                 )
                 if (archived) {
                     DropdownMenuItem(
-                        text = { Text(if (restoring) "恢复中…" else "恢复") },
+                        text = { Text(if (restoring) stringResource(com.fioiu8.dshpocket.R.string.sessions_restoring) else stringResource(com.fioiu8.dshpocket.R.string.sessions_restore)) },
                         leadingIcon = { Icon(Icons.Filled.Unarchive, contentDescription = null) },
                         enabled = !restoring,
                         onClick = {
@@ -458,7 +464,7 @@ private fun SessionRowItem(
                     )
                 } else {
                     DropdownMenuItem(
-                        text = { Text("归档") },
+                        text = { Text(stringResource(com.fioiu8.dshpocket.R.string.sessions_archive)) },
                         leadingIcon = { Icon(Icons.Filled.Archive, contentDescription = null) },
                         onClick = {
                             menuOpen = false
@@ -479,14 +485,15 @@ private data class Quad(
     val iconTint: androidx.compose.ui.graphics.Color,
 )
 
+@Composable
 private fun relativeTime(epochMillis: Long): String {
     if (epochMillis <= 0) return ""
     val diff = System.currentTimeMillis() - epochMillis
     val minutes = TimeUnit.MILLISECONDS.toMinutes(diff)
     return when {
-        minutes < 1 -> "刚刚"
-        minutes < 60 -> "$minutes 分钟前"
-        minutes < 60 * 24 -> "${minutes / 60} 小时前"
-        else -> "${minutes / (60 * 24)} 天前"
+        minutes < 1 -> stringResource(com.fioiu8.dshpocket.R.string.sessions_just_now)
+        minutes < 60 -> stringResource(com.fioiu8.dshpocket.R.string.sessions_minutes_ago, minutes)
+        minutes < 60 * 24 -> stringResource(com.fioiu8.dshpocket.R.string.sessions_hours_ago, minutes / 60)
+        else -> stringResource(com.fioiu8.dshpocket.R.string.sessions_days_ago, minutes / (60 * 24))
     }
 }
