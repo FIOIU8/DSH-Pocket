@@ -49,6 +49,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -137,6 +138,35 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit) {
     var accountView by remember { mutableStateOf<JSONObject?>(null) }
     val context = LocalContext.current
 
+    // Resolved here, in composable scope, then captured. `stringResource` cannot be
+    // called from a LaunchedEffect block or a callback lambda, and reading the string
+    // through LocalContext there would not recompose when the language changes.
+    val labelSaveError = stringResource(com.fioiu8.dshpocket.R.string.models_save_error)
+    val labelSaveServiceError = stringResource(com.fioiu8.dshpocket.R.string.models_save_service_error)
+    val labelSaveApiKey = stringResource(com.fioiu8.dshpocket.R.string.models_save_api_key)
+    val labelAddOneError = stringResource(com.fioiu8.dshpocket.R.string.models_add_one_error)
+    val labelUrlError = stringResource(com.fioiu8.dshpocket.R.string.models_url_error)
+    val labelServiceIdHint = stringResource(com.fioiu8.dshpocket.R.string.models_service_id_hint)
+    val labelProtocolError = stringResource(com.fioiu8.dshpocket.R.string.models_protocol_error)
+    val labelHeadersError = stringResource(com.fioiu8.dshpocket.R.string.models_headers_error)
+    val labelDefaultRemovedError = stringResource(com.fioiu8.dshpocket.R.string.models_default_removed_error)
+    val labelDefaultServiceDeleteError = stringResource(com.fioiu8.dshpocket.R.string.models_default_service_delete_error)
+    val labelNoModelsReturned = stringResource(com.fioiu8.dshpocket.R.string.models_no_models_returned)
+    val labelBrowserFailed = stringResource(com.fioiu8.dshpocket.R.string.models_browser_failed)
+    val labelStartLoginFailed = stringResource(com.fioiu8.dshpocket.R.string.models_start_login_failed)
+    val labelSignoutFailed = stringResource(com.fioiu8.dshpocket.R.string.models_signout_failed)
+    val labelCancelLoginFailed = stringResource(com.fioiu8.dshpocket.R.string.models_cancel_login_failed)
+    val labelErrorUnknown = stringResource(com.fioiu8.dshpocket.R.string.error_unknown)
+    val labelClear = stringResource(com.fioiu8.dshpocket.R.string.models_clear)
+
+    // Format-arg variants: the arguments (engine error codes) only exist inside the
+    // lambda, so what is captured is a formatter rather than a finished string. The
+    // `Resources` handle comes from `LocalResources`, which recomposes with
+    // configuration changes, rather than from `LocalContext.current`, which does not.
+    val resources = LocalResources.current
+    fun formatResource(id: Int, vararg args: Any): String = resources.getString(id, *args)
+
+
     fun openEditor(provider: ProviderInfo?) {
         editingProvider = provider
         editorId = provider?.id.orEmpty()
@@ -182,7 +212,7 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit) {
             val result = EngineApi.rpc(ready.baseUrl, "settings/update", args, ready.token)
             busy = false
             when (result) {
-                is RpcResult.Err -> error = context.getString(com.fioiu8.dshpocket.R.string.models_save_error, result.code, result.message)
+                is RpcResult.Err -> error = formatResource(com.fioiu8.dshpocket.R.string.models_save_error, result.code, result.message)
                 is RpcResult.Ok -> reload()
             }
         }
@@ -191,30 +221,30 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit) {
     fun persistProvider(draft: ProviderDraft, existing: ProviderInfo?) {
         val modelEntries = parseProviderModels(draft.models)
         if (modelEntries == null || modelEntries.isEmpty()) {
-            error = context.getString(com.fioiu8.dshpocket.R.string.models_add_one_error)
+            error = labelAddOneError
             return
         }
         if (!isHttpEndpoint(draft.baseURL)) {
-            error = context.getString(com.fioiu8.dshpocket.R.string.models_url_error)
+            error = labelUrlError
             return
         }
         if (!Regex("^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$").matches(draft.id) ||
             (existing == null && providers.any { it.id == draft.id })
         ) {
-            error = context.getString(com.fioiu8.dshpocket.R.string.models_service_id_hint)
+            error = labelServiceIdHint
             return
         }
         if (draft.api !in providerProtocols.map { it.first }) {
-            error = context.getString(com.fioiu8.dshpocket.R.string.models_protocol_error)
+            error = labelProtocolError
             return
         }
         val headers = parseProviderHeaders(draft.headers)
         if (headers == null) {
-            error = context.getString(com.fioiu8.dshpocket.R.string.models_headers_error)
+            error = labelHeadersError
             return
         }
         if (defaultProvider == draft.id && defaultModel?.let { model -> modelEntries.none { it.first == model } } == true) {
-            error = context.getString(com.fioiu8.dshpocket.R.string.models_default_removed_error)
+            error = labelDefaultRemovedError
             return
         }
 
@@ -269,7 +299,7 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit) {
             val args = JSONObject().put("ns", "llm-pi-ai").put("ops", ops)
             providerRevision?.let { args.put("expectedRevision", it) }
             when (val result = EngineApi.rpc(ready.baseUrl, "settings/mutate", args, ready.token)) {
-                is RpcResult.Err -> actionError = context.getString(com.fioiu8.dshpocket.R.string.models_save_service_error, result.code, result.message)
+                is RpcResult.Err -> actionError = formatResource(com.fioiu8.dshpocket.R.string.models_save_service_error, result.code, result.message)
                 is RpcResult.Ok -> {
                     editorPage = false
                     var credentialError: String? = null
@@ -280,7 +310,7 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit) {
                             JSONObject().put("ref", keyRef).put("value", draft.apiKey.trim()),
                             ready.token,
                         )) {
-                            is RpcResult.Err -> credentialError = context.getString(com.fioiu8.dshpocket.R.string.models_key_save_error, credential.message)
+                            is RpcResult.Err -> credentialError = formatResource(com.fioiu8.dshpocket.R.string.models_key_save_error, credential.message)
                             is RpcResult.Ok -> Unit
                         }
                     }
@@ -298,7 +328,7 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit) {
 
     fun removeProvider(provider: ProviderInfo) {
         if (defaultProvider == provider.id) {
-            error = context.getString(com.fioiu8.dshpocket.R.string.models_default_service_delete_error)
+            error = labelDefaultServiceDeleteError
             deleteProvider = null
             return
         }
@@ -314,7 +344,7 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit) {
                     ready.token,
                 )) {
                     is RpcResult.Err -> {
-                        actionError = context.getString(com.fioiu8.dshpocket.R.string.models_delete_key_error, credential.code, credential.message)
+                        actionError = formatResource(com.fioiu8.dshpocket.R.string.models_delete_key_error, credential.code, credential.message)
                         busy = false
                         deleteProvider = null
                         return@launch
@@ -331,7 +361,7 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit) {
             providerRevision?.let { args.put("expectedRevision", it) }
             when (val result = EngineApi.rpc(ready.baseUrl, "settings/mutate", args, ready.token)) {
                 is RpcResult.Err -> {
-                    actionError = context.getString(com.fioiu8.dshpocket.R.string.models_delete_service_error, result.code, result.message)
+                    actionError = formatResource(com.fioiu8.dshpocket.R.string.models_delete_service_error, result.code, result.message)
                     tick += 1
                 }
                 is RpcResult.Ok -> reload()
@@ -347,7 +377,7 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit) {
         val describe = EngineApi.rpc(ready.baseUrl, "settings/describe", EngineApi.emptyArgs(), ready.token)
         if (describe !is RpcResult.Ok) {
             busy = false
-            error = (describe as? RpcResult.Err)?.let { "${it.code}: ${it.message}" } ?: context.getString(com.fioiu8.dshpocket.R.string.error_unknown)
+            error = (describe as? RpcResult.Err)?.let { "${it.code}: ${it.message}" } ?: labelErrorUnknown
             return@LaunchedEffect
         }
         var loadedProviders = providers
@@ -507,7 +537,7 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit) {
                             JSONObject().put("ref", officialApiKeyRef).put("value", value),
                             ready.token,
                         )) {
-                            is RpcResult.Err -> actionError = "${context.getString(com.fioiu8.dshpocket.R.string.models_save_api_key)}: ${result.message}"
+                            is RpcResult.Err -> actionError = "${labelSaveApiKey}: ${result.message}"
                             is RpcResult.Ok -> {
                                 officialApiKey = ""
                                 officialApiPage = false
@@ -527,7 +557,7 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit) {
                             JSONObject().put("ref", officialApiKeyRef),
                             ready.token,
                         )) {
-                            is RpcResult.Err -> actionError = "${context.getString(com.fioiu8.dshpocket.R.string.models_clear)}: ${result.message}"
+                            is RpcResult.Err -> actionError = "${labelClear}: ${result.message}"
                             is RpcResult.Ok -> {
                                 officialApiPage = false
                                 reload()
@@ -574,12 +604,12 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit) {
                             JSONObject().put("settingsNs", "llm-pi-ai").put("request", request),
                             ready.token,
                         )) {
-                            is RpcResult.Err -> actionError = context.getString(com.fioiu8.dshpocket.R.string.models_discover_error, result.message)
+                            is RpcResult.Err -> actionError = formatResource(com.fioiu8.dshpocket.R.string.models_discover_error, result.message)
                             is RpcResult.Ok -> {
                                 val models = (result.value as? JSONArray)?.let { array ->
                                     (0 until array.length()).mapNotNull { array.optJSONObject(it)?.let { model -> JSONObject(model.toString()) } }
                                 }.orEmpty()
-                                if (models.isEmpty()) actionError = context.getString(com.fioiu8.dshpocket.R.string.models_no_models_returned)
+                                if (models.isEmpty()) actionError = labelNoModelsReturned
                                 else {
                                     val currentIds = parseProviderModels(editorModels).orEmpty().map { it.first }.toSet()
                                     discoveredModels = models
@@ -750,7 +780,7 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit) {
                                                     JSONObject().put("ref", env),
                                                     ready.token,
                                                 )) {
-                                                    is RpcResult.Err -> actionError = "${context.getString(com.fioiu8.dshpocket.R.string.models_clear)}: ${result.message}"
+                                                    is RpcResult.Err -> actionError = "${labelClear}: ${result.message}"
                                                     is RpcResult.Ok -> reload()
                                                 }
                                                 busy = false
@@ -857,14 +887,14 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit) {
                                                     .put("loginSource", "desktop"),
                                                 ready.token,
                                             )) {
-                                                is RpcResult.Err -> actionError = "${context.getString(com.fioiu8.dshpocket.R.string.models_start_login_failed)}: ${result.message}"
+                                                is RpcResult.Err -> actionError = "${labelStartLoginFailed}: ${result.message}"
                                                 is RpcResult.Ok -> {
                                                     accountView = result.value as? JSONObject
                                                     val authorizeUrl = accountView?.optJSONObject("attempt")?.optString("authorizeUrl")
                                                     if (!authorizeUrl.isNullOrBlank()) {
                                                         runCatching {
                                                             context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(authorizeUrl)))
-                                                        }.onFailure { actionError = "${context.getString(com.fioiu8.dshpocket.R.string.models_browser_failed)}: ${it.message}" }
+                                                        }.onFailure { actionError = "${labelBrowserFailed}: ${it.message}" }
                                                     }
                                                 }
                                             }
@@ -885,7 +915,7 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit) {
                                                     JSONObject().put("attemptId", attemptId),
                                                     ready.token,
                                                 )) {
-                                                    is RpcResult.Err -> actionError = "${context.getString(com.fioiu8.dshpocket.R.string.models_cancel_login_failed)}: ${result.message}"
+                                                    is RpcResult.Err -> actionError = "${labelCancelLoginFailed}: ${result.message}"
                                                     is RpcResult.Ok -> accountView = result.value as? JSONObject
                                                 }
                                                 busy = false
@@ -910,7 +940,7 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit) {
                                                     JSONObject().put("client", client),
                                                     ready.token,
                                                 )) {
-                                                    is RpcResult.Err -> actionError = "${context.getString(com.fioiu8.dshpocket.R.string.models_signout_failed)}: ${result.message}"
+                                                    is RpcResult.Err -> actionError = "${labelSignoutFailed}: ${result.message}"
                                                     is RpcResult.Ok -> accountView = result.value as? JSONObject
                                                 }
                                                 busy = false
@@ -1000,7 +1030,7 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit) {
                             JSONObject().put("ref", provider.apiKeyEnv).put("value", value),
                             ready.token,
                         )) {
-                            is RpcResult.Err -> actionError = "${context.getString(com.fioiu8.dshpocket.R.string.models_save_api_key)}: ${result.message}"
+                            is RpcResult.Err -> actionError = "${labelSaveApiKey}: ${result.message}"
                             is RpcResult.Ok -> reload()
                         }
                         busy = false
