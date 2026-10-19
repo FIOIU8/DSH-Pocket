@@ -215,6 +215,15 @@ fun AppShell(
 
     LaunchedEffect(Unit) { controller.start() }
 
+    // One owner for the session poll, started when the engine first becomes ready.
+    // startPolling is idempotent, so a later screen composing alongside this one adds
+    // no extra fetches and no second loop.
+    LaunchedEffect(controller) {
+        controller.state.collect { ready ->
+            if (ready is com.fioiu8.dshpocket.engine.EngineState.Ready) sessionRepository.startPolling()
+        }
+    }
+
     BackHandler(enabled = destination == Destination.Settings && settingsSection != null) {
         settingsSection = null
     }
@@ -334,6 +343,7 @@ fun AppShell(
         when (navigationTarget.first) {
             Destination.Home -> HomeScreen(
                 state = state,
+                repository = sessionRepository,
                 onOpenChat = { destination = Destination.Chat },
                 onOpenSessions = { destination = Destination.Sessions },
                 onOpenPlugins = { destination = Destination.Plugins },

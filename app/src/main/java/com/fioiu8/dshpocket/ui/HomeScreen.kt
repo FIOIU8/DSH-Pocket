@@ -31,6 +31,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
@@ -43,6 +44,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.res.stringResource
 import com.fioiu8.dshpocket.engine.EngineApi
+import com.fioiu8.dshpocket.ui.state.SessionLoadState
+import com.fioiu8.dshpocket.ui.state.SessionRepository
 import com.fioiu8.dshpocket.engine.EnginePaths
 import com.fioiu8.dshpocket.engine.EngineState
 import com.fioiu8.dshpocket.engine.RuntimeInstaller
@@ -66,6 +69,7 @@ fun HomeScreen(
     onOpenModels: () -> Unit,
     onMenu: () -> Unit,
     onRestart: () -> Unit,
+    repository: SessionRepository,
 ) {
     Scaffold(
         topBar = {
@@ -77,6 +81,8 @@ fun HomeScreen(
         },
     ) { padding ->
         var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+        // A local one-second clock for the uptime readout. This is not a data poll - it
+        // issues no RPC and belongs to this composable rather than a repository.
         LaunchedEffect(Unit) {
             while (true) {
                 delay(1_000)
@@ -91,7 +97,7 @@ fun HomeScreen(
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(DshSpacing.compact),
         ) {
-            LatestSessionSection(state, onOpenChat)
+            LatestSessionSection(repository, onOpenChat)
 
             SectionHeader(stringResource(com.fioiu8.dshpocket.R.string.home_quick_entries))
             QuickEntryList(onOpenChat, onOpenSessions, onOpenPlugins, onOpenModels)
@@ -118,43 +124,26 @@ private fun subtitleFor(state: EngineState): String = when (state) {
     EngineState.Idle -> stringResource(com.fioiu8.dshpocket.R.string.home_engine_stopped)
 }
 
-/** 首页顶部的「最新会话」filled 卡（canvas home_latest）+「继续查看」tonal 按钮。 */
+/**
+ * 首页顶部的「最新会话」filled 卡（canvas home_latest）+「继续查看」tonal 按钮。
+ *
+ * Reads the shared [SessionRepository] rather than calling `session/list` again. This is
+ * the second consumer that proves the sharing works: with both screens composed, the
+ * engine is still asked exactly once, and no second poll loop appears here.
+ */
 @Composable
-private fun LatestSessionSection(state: EngineState, onOpenChat: () -> Unit) {
-    val context = LocalContext.current
-    var latest by remember { mutableStateOf<LatestSession?>(null) }
+private fun LatestSessionSection(repository: SessionRepository, onOpenChat: () -> Unit) {
+    val ui by repository.state.collectAsState()
 
-    LaunchedEffect(state) {
-        val ready = state as? EngineState.Ready ?: return@LaunchedEffect
-        val result = EngineApi.rpc(
-            ready.baseUrl,
-            "session/list",
-            EngineApi.emptyArgs().put("_request", JSONObject()),
-            ready.token,
+    // `session/list` is ordered most-recent-first and the repository preserves that, so
+    // the first row is the latest. A null title stays null; the label is a @StringRes
+    // resolved at draw time.
+    val latest = (ui.load as? SessionLoadState.Ready)?.rows?.firstOrNull()?.let { row ->
+        LatestSession(
+            title = row.title,
+            running = row.running,
+            turns = row.steps,
         )
-        if (result is EngineApi.RpcResult.Ok) {
-            latest = EngineApi.itemsOf(result.value)
-                .let { items ->
-                    buildList {
-                        for (i in 0 until items.length()) {
-                            val item = items.optJSONObject(i) ?: continue
-                            if (item.optBoolean("blank")) continue
-                            val values = item.optJSONObject("projections")?.optJSONObject("values")
-                            val title = values?.optString("title")
-                                ?.takeIf { it.isNotBlank() && it != "null" }
-                                ?: context.getString(com.fioiu8.dshpocket.R.string.home_untitled_session)
-                            add(
-                                LatestSession(
-                                    title = title,
-                                    running = item.optBoolean("running"),
-                                    turns = values?.optJSONArray("turnOutline")?.length() ?: 0,
-                                ),
-                            )
-                        }
-                    }
-                }
-                .firstOrNull() // session/list 已按最近更新排序
-        }
     }
 
     Column(Modifier.fillMaxWidth().padding(horizontal = DshSpacing.page, vertical = DshSpacing.compact)) {
@@ -175,8 +164,14 @@ private fun LatestSessionSection(state: EngineState, onOpenChat: () -> Unit) {
                     tint = MaterialTheme.colorScheme.primary,
                 )
                 Column {
+                    // Three distinct states, which is why this is not a plain ?: chain:
+                    // no session at all, a session with no title, and a real title.
                     Text(
-                        session?.title ?: stringResource(com.fioiu8.dshpocket.R.string.home_no_session),
+                        text = when {
+                            session == null -> stringResource(com.fioiu8.dshpocket.R.string.home_no_session)
+                            session.title != null -> session.title
+                            else -> stringResource(com.fioiu8.dshpocket.R.string.home_untitled_session)
+                        },
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
                     )
@@ -206,7 +201,7 @@ private fun LatestSessionSection(state: EngineState, onOpenChat: () -> Unit) {
     }
 }
 
-private data class LatestSession(val title: String, val running: Boolean, val turns: Int)
+private data class LatestSession(val title: String?, val running: Boolean, val turns: Int)
 
 /** 快捷入口（canvas quick_*）：纵向 ListItem，图标 + chevron。 */
 @Composable

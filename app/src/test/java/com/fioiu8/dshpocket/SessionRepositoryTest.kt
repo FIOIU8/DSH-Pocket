@@ -332,6 +332,38 @@ class SessionRepositoryTest {
 
         repository.stopPolling()
     }
+
+    /**
+     * The Home slice's acceptance check: a second consumer must not cost a second fetch.
+     *
+     * HomeScreen used to call `session/list` itself. Both screens now read the same
+     * repository, and the poll is started once by AppShell when the engine turns Ready.
+     * Composing both must therefore still produce exactly one call per interval.
+     */
+    @Test
+    fun `two consumers share one fetch per interval`() = runTest(StandardTestDispatcher()) {
+        val source = FakeSource(
+            listResult = RpcResult.Ok(rowsArray(row("a", "Latest", updatedAt = 5_000L))),
+        )
+        val repository = repository(source)
+
+        // AppShell starts the loop when the engine reports Ready.
+        repository.startPolling()
+        runCurrent()
+
+        // Home and Sessions both collect the same StateFlow; neither re-requests.
+        val home: List<String> = (repository.state.value.load as SessionLoadState.Ready).rows.map { it.id }
+        val sessions: List<String> = (repository.state.value.load as SessionLoadState.Ready).rows.map { it.id }
+        assertEquals(listOf("a"), home)
+        assertEquals("both consumers read the same rows", home, sessions)
+        assertEquals(1, source.listCalls)
+
+        advanceTimeBy(SessionRepository.POLL_INTERVAL_MS)
+        runCurrent()
+        assertEquals("one interval, one fetch, however many consumers", 2, source.listCalls)
+
+        repository.stopPolling()
+    }
 }
 
 /** Guards the grouping helper the screen uses, which is easy to break with a null cwd. */

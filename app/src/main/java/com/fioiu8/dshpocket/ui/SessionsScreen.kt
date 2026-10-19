@@ -108,8 +108,8 @@ fun SessionsScreen(
     var pendingArchiveId by rememberSaveable { mutableStateOf<String?>(null) }
     val filter = SessionFilter.valueOf(filterName)
 
-    // 每次进入都调用是安全的：startPolling 会忽略第二次调用。
-    LaunchedEffect(state) { sessionViewModel.ensurePolling() }
+    // Polling is owned by AppShell so there is exactly one loop for the app; the
+    // repository's startPolling is idempotent either way.
 
     val pendingArchive = (ui.load as? SessionLoadState.Ready)
         ?.rows?.firstOrNull { it.id == pendingArchiveId }
