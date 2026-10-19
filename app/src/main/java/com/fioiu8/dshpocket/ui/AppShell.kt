@@ -67,6 +67,8 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import com.fioiu8.dshpocket.ui.state.EngineSessionSource
+import com.fioiu8.dshpocket.ui.state.SessionRepository
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -172,6 +174,15 @@ fun AppShell(
         mutableStateOf(loadNativeChatPreferences(context))
     }
     var capabilities by remember { mutableStateOf(readCapabilities(context)) }
+
+    // Shared per process, so the home card and the session screen read one source of
+    // truth and the poll loop runs once instead of once per screen.
+    val sessionRepository = remember {
+        SessionRepository.get(controller.applicationScope) {
+            val ready = controller.state.value as? EngineState.Ready
+            ready?.let { EngineSessionSource(it.baseUrl, it.token) }
+        }
+    }
 
     // The WebView instance outlives tab switches so returning to 对话 does not reload it.
     val webView = remember { mutableStateOf<WebView?>(null) }
@@ -374,6 +385,7 @@ fun AppShell(
 
             Destination.Sessions -> SessionsScreen(
                 state = state,
+                repository = sessionRepository,
                 onMenu = openDrawer,
                 onOpenChat = { destination = Destination.Chat },
             )

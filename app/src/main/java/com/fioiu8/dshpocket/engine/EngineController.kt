@@ -73,6 +73,12 @@ class EngineController(private val context: Application) {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
+    /**
+     * Scope for work that outlives any one screen, such as the shared session repository.
+     * Exposed so callers can own long-lived coroutines without creating their own scope.
+     */
+    val applicationScope: CoroutineScope get() = scope
+
     private val _state = MutableStateFlow<EngineState>(EngineState.Idle)
     val state: StateFlow<EngineState> = _state.asStateFlow()
 
