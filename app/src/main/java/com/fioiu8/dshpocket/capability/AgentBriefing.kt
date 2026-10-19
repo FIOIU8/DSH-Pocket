@@ -38,7 +38,7 @@ object AgentBriefing {
         append(POLICY_END_MARKER)
     }
 
-    private fun renderCapabilities(snapshot: CapabilitySnapshot): String = buildString {
+    internal fun renderCapabilities(snapshot: CapabilitySnapshot): String = buildString {
         appendLine(START_MARKER)
         appendLine("# DSH Pocket runtime facts")
         appendLine()
