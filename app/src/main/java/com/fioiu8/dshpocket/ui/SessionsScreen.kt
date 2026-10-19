@@ -56,6 +56,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.fioiu8.dshpocket.engine.EngineState
 import com.fioiu8.dshpocket.ui.state.SessionLoadState
+import com.fioiu8.dshpocket.ui.state.SessionFilter
+import com.fioiu8.dshpocket.ui.state.SessionQuery
 import com.fioiu8.dshpocket.ui.state.SessionRepository
 import com.fioiu8.dshpocket.ui.state.SessionRow
 import com.fioiu8.dshpocket.ui.state.SessionViewModel
@@ -73,12 +75,14 @@ import com.fioiu8.dshpocket.ui.theme.DshSpacing
  * - **导航状态**（搜索框、筛选、待确认项）用 `rememberSaveable`，因为它要熬过进程死亡；
  * - **数据状态**（列表、归档集合、忙碌标记）归 ViewModel，因为它是异步的，不该因切页被取消。
  */
-private enum class SessionFilter(val labelRes: Int) {
-    All(com.fioiu8.dshpocket.R.string.sessions_all),
-    Running(com.fioiu8.dshpocket.R.string.sessions_running),
-    Finished(com.fioiu8.dshpocket.R.string.sessions_finished),
-    Archived(com.fioiu8.dshpocket.R.string.sessions_archived),
-}
+/** Labels for the state layer's [SessionFilter]; the logic lives there, not here. */
+private val SessionFilter.labelRes: Int
+    get() = when (this) {
+        SessionFilter.All -> com.fioiu8.dshpocket.R.string.sessions_all
+        SessionFilter.Running -> com.fioiu8.dshpocket.R.string.sessions_running
+        SessionFilter.Finished -> com.fioiu8.dshpocket.R.string.sessions_finished
+        SessionFilter.Archived -> com.fioiu8.dshpocket.R.string.sessions_archived
+    }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -187,14 +191,7 @@ fun SessionsScreen(
                 is SessionLoadState.Ready -> {
                     val untitled = stringResource(com.fioiu8.dshpocket.R.string.home_untitled_session)
                     val defaultWorkspace = stringResource(com.fioiu8.dshpocket.R.string.sessions_default_workspace)
-                    val filtered = load.rows.filter { row ->
-                        when (filter) {
-                            SessionFilter.All -> matchesQuery(row, query)
-                            SessionFilter.Running -> !SessionRepository.archived(row, ui.archivedIds) && row.running && matchesQuery(row, query)
-                            SessionFilter.Finished -> !SessionRepository.archived(row, ui.archivedIds) && !row.running && matchesQuery(row, query)
-                            SessionFilter.Archived -> SessionRepository.archived(row, ui.archivedIds) && matchesQuery(row, query)
-                        }
-                    }
+                    val filtered = SessionQuery.visible(load.rows, ui.archivedIds, filter, query)
                     if (filtered.isEmpty()) {
                         CenteredMessage(stringResource(com.fioiu8.dshpocket.R.string.sessions_no_match), "", busy = false)
                     } else {
@@ -204,7 +201,7 @@ fun SessionsScreen(
                             modifier = Modifier.fillMaxSize(),
                         ) {
                             LazyColumn(Modifier.fillMaxSize()) {
-                                filtered.groupBy { it.cwd?.substringAfterLast('/') ?: defaultWorkspace }
+                                SessionQuery.byWorkspace(filtered, defaultWorkspace)
                                     .forEach { (workspace, items) ->
                                         item(key = "header-$workspace") {
                                             Text(
@@ -224,7 +221,7 @@ fun SessionsScreen(
                                                         SessionRowItem(
                                                             row = row,
                                                             untitled = untitled,
-                                                            archived = SessionRepository.archived(row, ui.archivedIds),
+                                                            archived = SessionQuery.isArchived(row, ui.archivedIds),
                                                             restoring = ui.restoringId == row.id,
                                                             onOpen = onOpenChat,
                                                             onArchive = { pendingArchiveId = row.id },
@@ -261,10 +258,6 @@ fun SessionsScreen(
         )
     }
 }
-
-/** Title search. A row with no title still matches a query, as it did before. */
-private fun matchesQuery(row: SessionRow, query: String): Boolean =
-    query.isBlank() || row.title.orEmpty().contains(query, ignoreCase = true)
 
 @Composable
 private fun SessionRowItem(
