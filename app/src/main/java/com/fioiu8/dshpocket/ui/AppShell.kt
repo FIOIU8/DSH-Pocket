@@ -68,8 +68,10 @@ import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import com.fioiu8.dshpocket.ui.state.EngineModelSource
+import com.fioiu8.dshpocket.ui.state.EnginePluginSource
 import com.fioiu8.dshpocket.ui.state.EngineSessionSource
 import com.fioiu8.dshpocket.ui.state.ModelRepository
+import com.fioiu8.dshpocket.ui.state.PluginRepository
 import com.fioiu8.dshpocket.ui.state.SessionRepository
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -212,6 +214,15 @@ fun AppShell(
         ModelRepository.get {
             val ready = controller.state.value as? EngineState.Ready
             ready?.let { EngineModelSource(it.baseUrl, it.token) }
+        }
+    }
+
+    // Reads-only repository for the plugin screen; the toggle RPC reports through it and
+    // the screen keeps its own busy/refresh handling.
+    val pluginRepository = remember {
+        PluginRepository.get {
+            val ready = controller.state.value as? EngineState.Ready
+            ready?.let { EnginePluginSource(it.baseUrl, it.token) }
         }
     }
 
@@ -434,7 +445,7 @@ fun AppShell(
                 onOpenChat = { destination = Destination.Chat },
             )
 
-            Destination.Plugins -> PluginsScreen(state = state, onMenu = openDrawer)
+            Destination.Plugins -> PluginsScreen(state = state, onMenu = openDrawer, pluginRepository = pluginRepository)
 
             Destination.Models -> ModelsScreen(state = state, onMenu = openDrawer, modelRepository = modelRepository)
 

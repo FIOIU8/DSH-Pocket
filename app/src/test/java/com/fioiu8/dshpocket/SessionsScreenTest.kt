@@ -9,7 +9,7 @@ import com.fioiu8.dshpocket.ui.parseNativeModelCatalog
 import com.fioiu8.dshpocket.ui.markdownToAnnotatedString
 import com.fioiu8.dshpocket.ui.assistantStreamSnapshotText
 import com.fioiu8.dshpocket.ui.state.parseProviderModels
-import com.fioiu8.dshpocket.ui.localized
+import com.fioiu8.dshpocket.ui.state.localized
 import com.fioiu8.dshpocket.capability.AgentBriefing
 import com.fioiu8.dshpocket.capability.CapabilitySnapshot
 import com.fioiu8.dshpocket.capability.CapabilityState

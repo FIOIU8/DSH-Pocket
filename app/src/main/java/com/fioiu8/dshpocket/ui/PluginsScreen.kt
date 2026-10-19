@@ -1,6 +1,5 @@
 package com.fioiu8.dshpocket.ui
 
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -20,21 +19,22 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
-import com.fioiu8.dshpocket.engine.EngineApi
-import com.fioiu8.dshpocket.engine.EngineApi.RpcResult
 import com.fioiu8.dshpocket.engine.EngineState
+import com.fioiu8.dshpocket.ui.state.PluginRepository
+import com.fioiu8.dshpocket.ui.state.PluginRow
+import com.fioiu8.dshpocket.ui.state.PluginParser as parser
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import org.json.JSONObject
 import com.fioiu8.dshpocket.ui.theme.DshSpacing
 
 /**
@@ -43,34 +43,29 @@ import com.fioiu8.dshpocket.ui.theme.DshSpacing
  * 数据来自 `pluginManager/listPlugins`（PluginInventoryEntry[]：entryId/moduleName/
  * meta{title,description}/enabled/readOnlyReason）；启用开关走 `setPluginEnabled`。
  * 安装/卸载（installBundle/removeBundle，依赖 pnpm 网络）暂缓，见页尾说明。
+ *
+ * 读取全部经 [PluginRepository]；本屏自持一个 15s 轮询循环（每次进入页面开始，切走
+ * 即取消），与 shipped 行为一致。本地化标题在渲染期解析：模型只存原始
+ * [com.fioiu8.dshpocket.ui.state.LocalizedText]，排序键是解析后的标题。
  */
-data class PluginRow(
-    val id: String,
-    val moduleName: String,
-    val title: String,
-    val description: String,
-    val enabled: Boolean,
-    val readOnlyReason: String?,
-)
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PluginsScreen(state: EngineState, onMenu: () -> Unit) {
-    val context = androidx.compose.ui.platform.LocalContext.current
+fun PluginsScreen(state: EngineState, onMenu: () -> Unit, pluginRepository: PluginRepository) {
     val ready = state as? EngineState.Ready
-    var rows by remember { mutableStateOf<List<PluginRow>?>(null) }
-    var error by remember { mutableStateOf<String?>(null) }
+    val pluginState by pluginRepository.state.collectAsState()
     var refreshing by remember { mutableStateOf(false) }
     var busyId by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
 
-    LaunchedEffect(state) {
+    // Read in composition scope: LocalConfiguration recomposes on locale change, and
+    // being part of the key below it restarts the poll on the new locale, matching the
+    // per-iteration fresh read the shipped context.resources loop gave.
+    val localeTag = LocalConfiguration.current.locales[0].toLanguageTag()
+
+    LaunchedEffect(state, localeTag) {
         while (true) {
             if (state is EngineState.Ready) {
-                load(state.baseUrl, state.token, context.resources.configuration.locales[0].toLanguageTag(),
-                    onLoaded = { rows = it; error = null },
-                    onFailed = { error = it },
-                )
+                pluginRepository.reload()
             }
             delay(15_000)
         }
@@ -81,10 +76,7 @@ fun PluginsScreen(state: EngineState, onMenu: () -> Unit) {
         if (s != null) {
             refreshing = true
             scope.launch {
-                load(s.baseUrl, s.token, context.resources.configuration.locales[0].toLanguageTag(),
-                    onLoaded = { rows = it; error = null },
-                    onFailed = { error = it },
-                )
+                pluginRepository.reload()
                 refreshing = false
             }
         }
@@ -95,14 +87,8 @@ fun PluginsScreen(state: EngineState, onMenu: () -> Unit) {
         if (s != null) {
             busyId = row.id
             scope.launch {
-                val result = EngineApi.rpc(
-                    s.baseUrl,
-                    "pluginManager/setPluginEnabled",
-                    JSONObject().put("id", row.id).put("enabled", enabled),
-                    s.token,
-                )
+                pluginRepository.setPluginEnabled(row.id, enabled)
                 busyId = null
-                if (result is RpcResult.Err) error = "${result.code}: ${result.message}"
                 refresh()
             }
         }
@@ -112,7 +98,7 @@ fun PluginsScreen(state: EngineState, onMenu: () -> Unit) {
         topBar = { DshTopAppBar(title = stringResource(com.fioiu8.dshpocket.R.string.nav_plugins), onMenu = onMenu) },
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
-            val visible = rows
+            val visible = pluginState.rows
             when {
                 state !is EngineState.Ready -> CenteredMessage(
                     title = stringResource(com.fioiu8.dshpocket.R.string.engine_not_ready),
@@ -120,7 +106,7 @@ fun PluginsScreen(state: EngineState, onMenu: () -> Unit) {
                     busy = state is EngineState.Busy,
                 )
 
-                error != null && visible == null -> CenteredMessage(stringResource(com.fioiu8.dshpocket.R.string.plugins_load_failed), "$error", busy = false)
+                pluginState.error != null && visible == null -> CenteredMessage(stringResource(com.fioiu8.dshpocket.R.string.plugins_load_failed), pluginState.error.orEmpty(), busy = false)
                 visible == null -> CenteredMessage(stringResource(com.fioiu8.dshpocket.R.string.loading), "", busy = true)
                 visible.isEmpty() -> CenteredMessage(stringResource(com.fioiu8.dshpocket.R.string.plugins_empty), "", busy = false)
 
@@ -139,11 +125,12 @@ fun PluginsScreen(state: EngineState, onMenu: () -> Unit) {
                             GroupedList(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                .padding(horizontal = DshSpacing.page),
-                                items = visible.map { row ->
+                                    .padding(horizontal = DshSpacing.page),
+                                items = parser.sortedByTitle(visible, localeTag).map { row ->
                                     {
                                         PluginRowItem(
                                             row = row,
+                                            localeTag = localeTag,
                                             busy = busyId == row.id,
                                             onToggle = { enabled -> toggle(row, enabled) },
                                         )
@@ -154,7 +141,7 @@ fun PluginsScreen(state: EngineState, onMenu: () -> Unit) {
                                 text = stringResource(com.fioiu8.dshpocket.R.string.plugins_note),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                 modifier = Modifier.padding(DshSpacing.page),
+                                modifier = Modifier.padding(DshSpacing.page),
                             )
                         }
                     }
@@ -164,63 +151,12 @@ fun PluginsScreen(state: EngineState, onMenu: () -> Unit) {
     }
 }
 
-private suspend fun load(
-    baseUrl: String,
-    token: String,
-    localeTag: String,
-    onLoaded: (List<PluginRow>) -> Unit,
-    onFailed: (String) -> Unit,
-) {
-    val result = EngineApi.rpc(baseUrl, "pluginManager/listPlugins", EngineApi.emptyArgs(), token)
-    when (result) {
-        is RpcResult.Ok -> onLoaded(parseRows(EngineApi.itemsOf(result.value), localeTag))
-        is RpcResult.Err -> onFailed("${result.code}: ${result.message}")
-    }
-}
-
-private fun parseRows(items: org.json.JSONArray, localeTag: String = "zh-CN"): List<PluginRow> = buildList {
-    for (i in 0 until items.length()) {
-        val item = items.optJSONObject(i) ?: continue
-        val meta = item.optJSONObject("meta")
-        val title = localized(meta?.opt("title"), localeTag) ?: item.optString("moduleName").substringAfterLast('/')
-        val description = localized(meta?.opt("description"), localeTag).orEmpty()
-        add(
-            PluginRow(
-                id = item.optString("entryId"),
-                moduleName = item.optString("moduleName"),
-                title = title,
-                description = description,
-                enabled = item.optBoolean("enabled"),
-                readOnlyReason = item.optString("readOnlyReason").takeIf { it.isNotBlank() },
-            ),
-        )
-    }
-}.sortedBy { it.title.lowercase() }
-
-/** LocalizedText 可能是字符串，也可能是按语言键的对象；宽松解析。 */
-internal fun localized(value: Any?, localeTag: String = "zh-CN"): String? = when (value) {
-    null -> null
-    is String -> value.takeIf { it.isNotBlank() }
-    is JSONObject -> {
-        val zh = value.optString("zh-CN").ifBlank { value.optString("zh") }
-        val en = value.optString("en")
-        val preferred = when {
-            localeTag.lowercase().startsWith("zh") -> zh
-            localeTag.lowercase().startsWith("en") -> en
-            else -> ""
-        }
-        (preferred.ifBlank { zh }.ifBlank { en }).takeIf { it.isNotBlank() }
-    }
-
-    else -> value.toString().takeIf { it.isNotBlank() && it != "null" }
-}
-
 @Composable
-private fun PluginRowItem(row: PluginRow, busy: Boolean, onToggle: (Boolean) -> Unit) {
+private fun PluginRowItem(row: PluginRow, localeTag: String, busy: Boolean, onToggle: (Boolean) -> Unit) {
     ListItem(
-        headlineContent = { Text(row.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+        headlineContent = { Text(parser.titleFor(row, localeTag), maxLines = 1, overflow = TextOverflow.Ellipsis) },
         supportingContent = {
-            val subtitle = row.description.ifBlank { row.moduleName }
+            val subtitle = parser.descriptionFor(row, localeTag).ifBlank { row.moduleName }
             Text(
                 if (row.readOnlyReason != null) stringResource(com.fioiu8.dshpocket.R.string.plugins_read_only, subtitle, row.readOnlyReason) else subtitle,
                 maxLines = 2,
