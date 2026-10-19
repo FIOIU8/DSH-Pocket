@@ -2,7 +2,6 @@ package com.fioiu8.dshpocket.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -13,7 +12,6 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Chat
@@ -32,43 +30,48 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.fioiu8.dshpocket.engine.EngineApi
-import com.fioiu8.dshpocket.engine.EngineApi.RpcResult
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.fioiu8.dshpocket.engine.EngineState
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
-import org.json.JSONObject
+import com.fioiu8.dshpocket.ui.state.SessionLoadState
+import com.fioiu8.dshpocket.ui.state.SessionRepository
+import com.fioiu8.dshpocket.ui.state.SessionRow
+import com.fioiu8.dshpocket.ui.state.SessionViewModel
+import com.fioiu8.dshpocket.ui.state.SessionViewModelFactory
 import java.util.concurrent.TimeUnit
 import com.fioiu8.dshpocket.ui.theme.DshSpacing
 
 /**
  * 会话管理（m3e-canvas.json 的 sessions 帧）：四段筛选、按工作区分组、搜索、归档/恢复。
  *
- * 列表来自引擎 RPC `session/list`；归档集合没有一次性查询接口（workspace/follow 是
- * 订阅流），archiveSession/unarchiveSession 的返回值都带全量 archivedSessionIds，
- * 因此由这两次写操作的回包在本地维护归档集合。新建/重命名/分叉仍由官方 Web UI
- * 承载（D1：原生只做高频子集），点击条目跳到对话页。
+ * 本文件只负责渲染。数据在 [SessionRepository]，经 [SessionViewModel] 暴露；屏幕自己那圈
+ * `while (true)` 轮询已经移除，这也是再次进入本页不会重新拉取的原因。
+ *
+ * 此处真正要守住的分工：
+ * - **导航状态**（搜索框、筛选、待确认项）用 `rememberSaveable`，因为它要熬过进程死亡；
+ * - **数据状态**（列表、归档集合、忙碌标记）归 ViewModel，因为它是异步的，不该因切页被取消。
  */
 private enum class SessionFilter(val labelRes: Int) {
     All(com.fioiu8.dshpocket.R.string.sessions_all),
@@ -77,90 +80,35 @@ private enum class SessionFilter(val labelRes: Int) {
     Archived(com.fioiu8.dshpocket.R.string.sessions_archived),
 }
 
-data class SessionRow(
-    val id: String,
-    val title: String,
-    val updatedAt: Long,
-    val running: Boolean,
-    val provider: String?,
-    val model: String?,
-    val steps: Int,
-    val cwd: String?,
-)
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SessionsScreen(state: EngineState, onMenu: () -> Unit, onOpenChat: () -> Unit) {
-    val context = androidx.compose.ui.platform.LocalContext.current
-    val ready = state as? EngineState.Ready
-    var rows by remember { mutableStateOf<List<SessionRow>?>(null) }
-    var error by remember { mutableStateOf<String?>(null) }
-    var query by remember { mutableStateOf("") }
-    var searchActive by remember { mutableStateOf(false) }
-    var filter by remember { mutableStateOf(SessionFilter.All) }
-    var refreshing by remember { mutableStateOf(false) }
-    var pendingArchive by remember { mutableStateOf<SessionRow?>(null) }
-    var archiving by remember { mutableStateOf(false) }
-    var restoringId by remember { mutableStateOf<String?>(null) }
-    // 归档集合由归档/恢复的回包维护（见文件头注释）。
-    var archivedIds by remember { mutableStateOf<Set<String>>(emptySet()) }
-    val scope = rememberCoroutineScope()
+fun SessionsScreen(
+    state: EngineState,
+    onMenu: () -> Unit,
+    onOpenChat: () -> Unit,
+    repository: SessionRepository,
+) {
+    // Read through a lambda so the ViewModel sees the current engine state rather than the
+    // value captured when it was constructed.
+    val engineState: () -> EngineState = { state }
+    val sessionViewModel: SessionViewModel = viewModel(
+        key = "sessions",
+        factory = SessionViewModelFactory(repository, engineState),
+    )
+    val ui by sessionViewModel.state.collectAsState()
 
-    val unarchive: (SessionRow) -> Unit = { row ->
-        val s = ready
-        if (s != null) {
-            restoringId = row.id
-            scope.launch {
-                val result = EngineApi.rpc(
-                    s.baseUrl,
-                    "workspace/unarchiveSession",
-                    EngineApi.requestArgs(JSONObject().put("sessionId", row.id)),
-                    s.token,
-                )
-                restoringId = null
-                when (result) {
-                    is RpcResult.Ok -> {
-                        error = null
-                        archivedIds = archivedIdsFromResponse(result.value, "archivedSessionIds") ?: archivedIds
-                    }
-                    is RpcResult.Err -> error = "${result.code}: ${result.message}"
-                }
-            }
-        }
-    }
+    // 导航状态：熬过进程死亡。
+    var searchActive by rememberSaveable { mutableStateOf(false) }
+    var query by rememberSaveable { mutableStateOf("") }
+    var filterName by rememberSaveable { mutableStateOf(SessionFilter.All.name) }
+    var pendingArchiveId by rememberSaveable { mutableStateOf<String?>(null) }
+    val filter = SessionFilter.valueOf(filterName)
 
-    // 进入页面加载一次；此后每 15 秒静默刷新。
-    LaunchedEffect(state) {
-        while (true) {
-            if (state is EngineState.Ready) {
-                load(
-                    state.baseUrl,
-                    state.token,
-                    context.getString(com.fioiu8.dshpocket.R.string.home_untitled_session),
-                    onLoaded = { rows = it; error = null },
-                    onFailed = { error = it },
-                )
-            }
-            delay(15_000)
-        }
-    }
+    // 每次进入都调用是安全的：startPolling 会忽略第二次调用。
+    LaunchedEffect(state) { sessionViewModel.ensurePolling() }
 
-    val refresh: () -> Unit = {
-        val s = state as? EngineState.Ready
-        if (s != null) {
-            refreshing = true
-            scope.launch {
-                load(
-                    s.baseUrl,
-                    s.token,
-                    context.getString(com.fioiu8.dshpocket.R.string.home_untitled_session),
-                    onLoaded = { rows = it; error = null },
-                    onFailed = { error = it },
-                )
-                refreshing = false
-            }
-        }
-    }
+    val pendingArchive = (ui.load as? SessionLoadState.Ready)
+        ?.rows?.firstOrNull { it.id == pendingArchiveId }
 
     Scaffold(
         topBar = {
@@ -174,7 +122,7 @@ fun SessionsScreen(state: EngineState, onMenu: () -> Unit, onOpenChat: () -> Uni
                     }, modifier = Modifier.size(DshSpacing.touchTarget)) {
                         Icon(Icons.Filled.Search, contentDescription = stringResource(com.fioiu8.dshpocket.R.string.search), modifier = Modifier.size(DshSpacing.icon))
                     }
-                    IconButton(onClick = { refresh() }, modifier = Modifier.size(DshSpacing.touchTarget)) {
+                    IconButton(onClick = { sessionViewModel.refresh() }, modifier = Modifier.size(DshSpacing.touchTarget)) {
                         Icon(Icons.Filled.Refresh, contentDescription = stringResource(com.fioiu8.dshpocket.R.string.refresh), modifier = Modifier.size(DshSpacing.icon))
                     }
                 },
@@ -188,7 +136,7 @@ fun SessionsScreen(state: EngineState, onMenu: () -> Unit, onOpenChat: () -> Uni
                     onValueChange = { query = it },
                     modifier = Modifier
                         .fillMaxWidth()
-                    .padding(horizontal = DshSpacing.page, vertical = DshSpacing.compact),
+                        .padding(horizontal = DshSpacing.page, vertical = DshSpacing.compact),
                     singleLine = true,
                     placeholder = { Text(stringResource(com.fioiu8.dshpocket.R.string.sessions_search_placeholder)) },
                     leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
@@ -210,7 +158,7 @@ fun SessionsScreen(state: EngineState, onMenu: () -> Unit, onOpenChat: () -> Uni
                 SessionFilter.entries.forEachIndexed { index, entry ->
                     SegmentedButton(
                         selected = filter == entry,
-                        onClick = { filter = entry },
+                        onClick = { filterName = entry.name },
                         shape = SegmentedButtonDefaults.itemShape(index = index, count = SessionFilter.entries.size),
                         modifier = Modifier.heightIn(min = DshSpacing.controlHeight),
                     ) {
@@ -219,72 +167,74 @@ fun SessionsScreen(state: EngineState, onMenu: () -> Unit, onOpenChat: () -> Uni
                 }
             }
 
-            val visible = rows
-            when {
-                state !is EngineState.Ready -> CenteredMessage(
-                    title = stringResource(com.fioiu8.dshpocket.R.string.engine_not_ready),
-                    body = (state as? EngineState.Busy)?.message ?: stringResource(com.fioiu8.dshpocket.R.string.engine_start_to_manage_sessions),
-                    busy = state is EngineState.Busy,
-                )
-
-                error != null -> CenteredMessage(stringResource(com.fioiu8.dshpocket.R.string.sessions_load_failed), "$error\n${stringResource(com.fioiu8.dshpocket.R.string.sessions_refresh_hint)}", busy = false)
-                visible == null -> CenteredMessage(stringResource(com.fioiu8.dshpocket.R.string.loading), "", busy = true)
-                visible.isEmpty() -> CenteredMessage(
-                    title = stringResource(com.fioiu8.dshpocket.R.string.sessions_empty),
-                    body = stringResource(com.fioiu8.dshpocket.R.string.sessions_empty_hint),
+            when (val load = ui.load) {
+                is SessionLoadState.Failed -> CenteredMessage(
+                    stringResource(com.fioiu8.dshpocket.R.string.sessions_load_failed),
+                    "${load.message}\n${stringResource(com.fioiu8.dshpocket.R.string.sessions_refresh_hint)}",
                     busy = false,
                 )
 
-                else -> {
-                    val filtered = visible.filter { row ->
-                        val archived = row.id in archivedIds
+                SessionLoadState.Loading -> if (state !is EngineState.Ready) {
+                    CenteredMessage(
+                        title = stringResource(com.fioiu8.dshpocket.R.string.engine_not_ready),
+                        body = (state as? EngineState.Busy)?.message ?: stringResource(com.fioiu8.dshpocket.R.string.engine_start_to_manage_sessions),
+                        busy = state is EngineState.Busy,
+                    )
+                } else {
+                    CenteredMessage(stringResource(com.fioiu8.dshpocket.R.string.loading), "", busy = true)
+                }
+
+                is SessionLoadState.Ready -> {
+                    val untitled = stringResource(com.fioiu8.dshpocket.R.string.home_untitled_session)
+                    val defaultWorkspace = stringResource(com.fioiu8.dshpocket.R.string.sessions_default_workspace)
+                    val filtered = load.rows.filter { row ->
                         when (filter) {
-                            SessionFilter.All -> true
-                            SessionFilter.Running -> !archived && row.running
-                            SessionFilter.Finished -> !archived && !row.running
-                            SessionFilter.Archived -> archived
-                        } && (query.isBlank() || row.title.contains(query, ignoreCase = true))
+                            SessionFilter.All -> matchesQuery(row, query)
+                            SessionFilter.Running -> !SessionRepository.archived(row, ui.archivedIds) && row.running && matchesQuery(row, query)
+                            SessionFilter.Finished -> !SessionRepository.archived(row, ui.archivedIds) && !row.running && matchesQuery(row, query)
+                            SessionFilter.Archived -> SessionRepository.archived(row, ui.archivedIds) && matchesQuery(row, query)
+                        }
                     }
                     if (filtered.isEmpty()) {
                         CenteredMessage(stringResource(com.fioiu8.dshpocket.R.string.sessions_no_match), "", busy = false)
                     } else {
-                        val defaultWorkspace = stringResource(com.fioiu8.dshpocket.R.string.sessions_default_workspace)
                         PullToRefreshBox(
-                            isRefreshing = refreshing,
-                            onRefresh = refresh,
+                            isRefreshing = ui.refreshing,
+                            onRefresh = { sessionViewModel.refreshUserInitiated() },
                             modifier = Modifier.fillMaxSize(),
                         ) {
                             LazyColumn(Modifier.fillMaxSize()) {
-                                val groups = filtered.groupBy { it.cwd?.substringAfterLast('/') ?: defaultWorkspace }
-                                groups.forEach { (workspace, items) ->
-                                    item(key = "header-$workspace") {
-                                        Text(
-                                            stringResource(com.fioiu8.dshpocket.R.string.sessions_workspace, workspace),
-                                            style = MaterialTheme.typography.titleSmall,
-                                            fontWeight = FontWeight.Bold,
-                                             modifier = Modifier.padding(start = DshSpacing.page, top = 16.dp, bottom = 8.dp),
-                                        )
+                                filtered.groupBy { it.cwd?.substringAfterLast('/') ?: defaultWorkspace }
+                                    .forEach { (workspace, items) ->
+                                        item(key = "header-$workspace") {
+                                            Text(
+                                                stringResource(com.fioiu8.dshpocket.R.string.sessions_workspace, workspace),
+                                                style = MaterialTheme.typography.titleSmall,
+                                                fontWeight = FontWeight.Bold,
+                                                modifier = Modifier.padding(start = DshSpacing.page, top = 16.dp, bottom = 8.dp),
+                                            )
+                                        }
+                                        item(key = "group-$workspace") {
+                                            GroupedList(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(horizontal = 16.dp),
+                                                items = items.map { row ->
+                                                    {
+                                                        SessionRowItem(
+                                                            row = row,
+                                                            untitled = untitled,
+                                                            archived = SessionRepository.archived(row, ui.archivedIds),
+                                                            restoring = ui.restoringId == row.id,
+                                                            onOpen = onOpenChat,
+                                                            onArchive = { pendingArchiveId = row.id },
+                                                            onUnarchive = { sessionViewModel.unarchive(row.id) },
+                                                        )
+                                                    }
+                                                },
+                                            )
+                                        }
                                     }
-                                    item(key = "group-$workspace") {
-                                        GroupedList(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .padding(horizontal = 16.dp),
-                                            items = items.map { row ->
-                                                {
-                                                    SessionRowItem(
-                                                        row = row,
-                                                        archived = row.id in archivedIds,
-                                                        restoring = restoringId == row.id,
-                                                        onOpen = onOpenChat,
-                                                        onArchive = { pendingArchive = row },
-                                                        onUnarchive = unarchive,
-                                                    )
-                                                }
-                                            },
-                                        )
-                                    }
-                                }
                             }
                         }
                     }
@@ -294,106 +244,37 @@ fun SessionsScreen(state: EngineState, onMenu: () -> Unit, onOpenChat: () -> Uni
     }
 
     pendingArchive?.let { row ->
+        val title = row.title ?: stringResource(com.fioiu8.dshpocket.R.string.home_untitled_session)
         AlertDialog(
-            onDismissRequest = { if (!archiving) pendingArchive = null },
+            onDismissRequest = { if (!ui.archiving) pendingArchiveId = null },
             title = { Text(stringResource(com.fioiu8.dshpocket.R.string.sessions_archive)) },
-            text = { Text(stringResource(com.fioiu8.dshpocket.R.string.sessions_archive_message, row.title)) },
+            text = { Text(stringResource(com.fioiu8.dshpocket.R.string.sessions_archive_message, title)) },
             confirmButton = {
-                TextButton(enabled = !archiving, onClick = {
-                    val s = ready ?: return@TextButton
-                    archiving = true
-                    scope.launch {
-                        val result = EngineApi.rpc(
-                            s.baseUrl,
-                            "workspace/archiveSession",
-                            EngineApi.requestArgs(JSONObject().put("sessionId", row.id)),
-                            s.token,
-                        )
-                        archiving = false
-                        pendingArchive = null
-                        when (result) {
-                            is RpcResult.Ok -> {
-                                error = null
-                                archivedIds = archivedIdsFromResponse(result.value, "archivedSessionIds") ?: archivedIds
-                            }
-                            is RpcResult.Err -> error = "${result.code}: ${result.message}"
-                        }
-                        refresh()
-                    }
-                }) { Text(if (archiving) stringResource(com.fioiu8.dshpocket.R.string.sessions_archiving) else stringResource(com.fioiu8.dshpocket.R.string.sessions_archive)) }
+                TextButton(enabled = !ui.archiving, onClick = {
+                    pendingArchiveId = null
+                    sessionViewModel.archive(row.id)
+                }) { Text(if (ui.archiving) stringResource(com.fioiu8.dshpocket.R.string.sessions_archiving) else stringResource(com.fioiu8.dshpocket.R.string.sessions_archive)) }
             },
             dismissButton = {
-                TextButton(onClick = { pendingArchive = null }) { Text(stringResource(com.fioiu8.dshpocket.R.string.cancel)) }
+                TextButton(onClick = { pendingArchiveId = null }) { Text(stringResource(com.fioiu8.dshpocket.R.string.cancel)) }
             },
         )
     }
 }
 
-/** 从 `{archivedSessionIds: [...]}` 回包读出字符串集合；缺字段时返回 null 以保持现状。 */
-internal fun archivedIdsFromResponse(value: Any?, key: String): Set<String>? {
-    val array = (value as? JSONObject)?.optJSONArray(key) ?: return null
-    return archivedIdsFromValues(buildList {
-        for (i in 0 until array.length()) add(array.optString(i))
-    })
-}
-
-/** Keeps a missing response distinct from a valid empty archive list. */
-internal fun archivedIdsFromValues(values: List<String>?): Set<String>? = values?.toSet()
-
-private suspend fun load(
-    baseUrl: String,
-    token: String,
-    untitledTitle: String,
-    onLoaded: (List<SessionRow>) -> Unit,
-    onFailed: (String) -> Unit,
-) {
-    val result = EngineApi.rpc(
-        baseUrl,
-        "session/list",
-        EngineApi.emptyArgs().put("_request", JSONObject()),
-        token,
-    )
-    when (result) {
-        is RpcResult.Ok -> onLoaded(parseRows(EngineApi.itemsOf(result.value), untitledTitle))
-        is RpcResult.Err -> onFailed("${result.code}: ${result.message}")
-    }
-}
-
-private fun parseRows(items: org.json.JSONArray, untitledTitle: String = "（无标题会话）"): List<SessionRow> = buildList {
-    for (i in 0 until items.length()) {
-        val item = items.optJSONObject(i) ?: continue
-        // blank = 刚创建还没有消息（官方 Web UI 打开时也会自动建一个）；跳过。
-        if (item.optBoolean("blank")) continue
-        val values = item.optJSONObject("projections")?.optJSONObject("values")
-        val model = values?.optJSONObject("modelSelection")?.optJSONObject("lastUsed")
-        val stats = values?.optJSONObject("sessionStats")
-        // JSON null 经 optString 会变成字符串 "null"，与缺失一并按无标题处理。
-        val title = values?.optString("title")
-            ?.takeIf { it.isNotBlank() && it != "null" }
-            ?: untitledTitle
-        add(
-            SessionRow(
-                id = item.optString("sessionId"),
-                title = title,
-                updatedAt = item.optLong("updatedAt"),
-                running = item.optBoolean("running"),
-                provider = model?.optString("provider")?.takeIf { it.isNotBlank() && it != "null" },
-                model = model?.optString("model")?.takeIf { it.isNotBlank() && it != "null" },
-                steps = stats?.optInt("steps") ?: values?.optJSONArray("turnOutline")?.length() ?: 0,
-                cwd = item.optString("cwd").takeIf { it.isNotBlank() },
-            ),
-        )
-    }
-}.sortedByDescending { it.updatedAt }
+/** Title search. A row with no title still matches a query, as it did before. */
+private fun matchesQuery(row: SessionRow, query: String): Boolean =
+    query.isBlank() || row.title.orEmpty().contains(query, ignoreCase = true)
 
 @Composable
 private fun SessionRowItem(
     row: SessionRow,
+    untitled: String,
     archived: Boolean,
     restoring: Boolean,
     onOpen: () -> Unit,
     onArchive: () -> Unit,
-    onUnarchive: (SessionRow) -> Unit,
+    onUnarchive: () -> Unit,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
     val colors = MaterialTheme.colorScheme
@@ -421,7 +302,7 @@ private fun SessionRowItem(
         Spacer(Modifier.size(12.dp))
         Column(Modifier.weight(1f)) {
             Text(
-                row.title,
+                row.title ?: untitled,
                 style = MaterialTheme.typography.titleSmall,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -458,7 +339,7 @@ private fun SessionRowItem(
                         enabled = !restoring,
                         onClick = {
                             menuOpen = false
-                            onUnarchive(row)
+                            onUnarchive()
                         },
                         modifier = Modifier.heightIn(min = DshSpacing.touchTarget),
                     )
@@ -479,10 +360,10 @@ private fun SessionRowItem(
 }
 
 private data class Quad(
-    val icon: androidx.compose.ui.graphics.vector.ImageVector,
+    val icon: ImageVector,
     val label: String,
-    val circleColor: androidx.compose.ui.graphics.Color,
-    val iconTint: androidx.compose.ui.graphics.Color,
+    val circleColor: Color,
+    val iconTint: Color,
 )
 
 @Composable
