@@ -12,13 +12,20 @@ Last updated: 2026-10-19
 | Task | Result |
 |---|---|
 | `assembleDebug` | pass |
-| `testDebugUnitTest` | pass (121 tests) |
-| `lintDebug` | **0 errors**, 52 warnings (W family: `UseKtx`, `AppBundleLocaleChanges`) |
+| `testDebugUnitTest` | pass (134 tests) |
+| `lintDebug` | **0 errors**, 51 warnings (all pre-existing families) |
+
+The 134 is what a `clean` run reports: 122 before Phase 2, plus the 12 seam
+tests. The earlier "121 tests" was stale by one, and the earlier "52
+warnings, W family `UseKtx` / `AppBundleLocaleChanges`" misdescribed the set
+— the families are `UnusedResources` (20), `TypographyEllipsis` (10),
+`PluralsCandidate` (7), `UseKtx` (7), `NewerVersionAvailable` (4),
+`AppBundleLocaleChanges` (1), `RedundantLabel` (1) and `GradleDependency` (1).
+None of them is in a file Phase 2 touched.
 
 Criterion 1 of Phase 1 is closed: the 43 `LocalContext*` / `NonObservableLocale`
 errors from the start of the phase reached 0 through the repository slices
-below, with no Suppress anywhere. The 52 warnings are all pre-existing
-`UseKtx` / `AppBundleLocaleChanges` families, none flagged in this phase.
+below, with no Suppress anywhere.
 
 ## Architecture rules
 
@@ -57,8 +64,8 @@ JSON. Phase 1 adds the missing layer.
 
 Four exit criteria, **all four met**:
 
-1. ~~**Green.**~~ ✔ `testDebugUnitTest` 121 tests pass; `lintDebug` 0 errors
-   (down from 43 at the start of the phase; 52 warnings, all pre-existing).
+1. ~~**Green.**~~ ✔ `testDebugUnitTest` 122 tests pass; `lintDebug` 0 errors
+   (down from 43 at the start of the phase; 51 warnings, all pre-existing).
 2. ✔ **Behaviour equivalence.** The Session slice pinned its six behaviours —
    list, search, filter, grouping, archive, restore — with one test each
    against shipped code. The Models and Plugins repos pin their own read
@@ -93,43 +100,83 @@ shipped screen doesn't have (clear-on-reload, reset-on-failure, a
 `6d97005` replaced them with line-for-line replicas and the tests were re-
 pinned to the shipped behaviour — each test name names the line it protects.
 
+## Phase 2 — the execution seam (closed 2026-10-19)
+
+Architecture decision D11 called for an `ExecutionBackend` seam "up front",
+because the Termux and Shizuku bridges are two implementations of one thing
+and retrofitting that costs more than declaring it. The seam now exists.
+
+What landed:
+
+- `capability/ExecutionBackend.kt` — the seam itself: `ExecutionBackend` (a
+  backend reports one companion's state), `DeviceQuery` (the narrow port the
+  backend looks at, so the seam is testable without a device), the shipped
+  `PackagePresenceBackend`, and the `CompanionBackends` registry.
+- `capability/CompanionStateMachine.kt` — the one rule that decides what two
+  companion states mean for process execution. It used to be inline in
+  `Capabilities.snapshot`, which is why no rule about it could be tested.
+- `Capabilities.snapshotOf(...)` — the pure core of a snapshot, no Android
+  types in it, so every rule the snapshot encodes is testable on the JVM.
+  `Capabilities.snapshot(...)` now only gathers the inputs and delegates.
+- The shipped `ExecutionBackend` enum was renamed `ExecutionBackendKind` to
+  free the name for the interface. The wire value (`"termux"` / `"shizuku"`),
+  the JSON key (`processExecutionBackendKind`) and the settings label are
+  unchanged — the enum was the odd one out, the wire field already said
+  "Kind".
+
+**No runtime value moved.** The production backend does exactly the
+package-presence check the shipped code did, so `processExecution` is still
+`Unavailable` and every status is what it was. What the phase bought is that
+the rungs `AUTHORIZED`, `RUNNING` and `BRIDGE_CONNECTED` — and `UNSUPPORTED`,
+which was unreachable too — now have a code path that can produce them: a
+backend that reports `BRIDGE_CONNECTED` really does yield `Available`
+execution, the `"bridge_connected"` wire value, and the agent briefing that
+says the bridge is connected. The 12 tests in `ExecutionBackendTest` drive
+that path end to end; a real bridge is what makes it reachable on a device.
+
+Two decisions were taken against the note this phase started from, and the
+reasons are worth keeping:
+
+1. **The `CompanionStatus` enum was not replaced.** The proposal was a sealed
+   type carrying payloads (`Authorized(binaryVersion)`,
+   `Running(binaryVersion, bridgeConnected)`). The shipped enum already models
+   the ladder correctly, and the proposal would have dropped two live states
+   (`INSTALLED` and `UNSUPPORTED` — both render in the settings screen, and
+   both are written to `capabilities.json`) and changed the wire contract.
+   `binaryVersion` has no source today. The rules moved *behind* the enum as
+   pure functions instead.
+2. **The seam is live in the production path, not a mock.** A mock backend
+   would either have shipped as dead code or changed what the user sees. The
+   production registry is exercised on every read, so the seam cannot rot.
+
+One deviation from the plan this phase ran on: `AgentBriefing.renderCapabilities`
+went from `private` to `internal`, so the test can read the briefing text the
+agent actually gets. `AgentBriefing.write` could not be used instead — it goes
+through `android.util.AtomicFile`, which is a stub in a JVM unit test — and
+`internal` is already how `capabilitiesJson` and `mergeManagedInstructions`
+are declared in that file. The rendered text is unchanged.
+
 ## Next plan
 
-### Immediate — `ExecutionBackend` interface + `CompanionStatus` skeleton
+### Immediate — the Termux / Shizuku bridge itself
 
-Architecture decision D11 wanted this seam from the start; it does not exist
-yet, and `Capabilities.snapshot()` returns `Unavailable` unconditionally, so
-`CompanionStatus.AUTHORIZED`, `RUNNING` and `BRIDGE_CONNECTED` are unreachable.
+The seam is in place; what is missing is a backend that can see past package
+presence. The first real one should be Shizuku, because its ladder
+(`installed` → `authorized` → `running` → `bridge connected`) maps onto the
+existing rungs one for one, and Termux's bridge needs a socket the app does
+not have yet.
 
-Doing it after Phase 1 (user-sequenced here rather than "before Phase 3") on
-purpose: the state layer is in place, so the backend skeleton can publish
-status through a repository instead of feeding the screen bare state.
+Two things that phase has to decide, and that this phase deliberately did
+not:
 
-Two design decisions need a call before code is written:
-
-1. **What statuses the state machine carries.** Shipped enum shape is
-   `CompanionStatus.AUTHORIZED / RUNNING / BRIDGE_CONNECTED` (plus `NOT_FOUND`
-   flavour inside the probe path); the skeleton should keep those names, but
-   the machine needs an explicit `Unavailable`/`NotInstalled` state at the
-   front. Proposal: sealed `CompanionStatus` with `NotInstalled`,
-   `Authorized(binaryVersion)`, `Running(binaryVersion, bridgeConnected)`
-   instead of parallel booleans — the unreachable-trio becomes reachable
-   states, transition rules live in one place, snapshots stop hand-gathering.
-2. **Whether the skeleton ships a mock backend.** Two options:
-   - *Keep `snapshot()` returning `Unavailable`* (behaviour baseline
-     preserved; the state machine lands dead until the Termux bridge phase —
-     safer per this project's equivalence discipline, but little testable).
-   - *Ship a `StaticBackend` that reports a fixed state* (the machine and the
-     UI wiring get exercised, but every consumer that reads
-     `CompanionStatus` will see new values — a deliberate behaviour change
-     that needs its own tests and its own gaps entry like the others).
-   Recommendation: **keep `Unavailable`** through the skeleton, and add tests
-   for the state machine's transitions themselves (pure functions can be
-   pinned without changing runtime behaviour). Flip to a live backend in the
-   Termux/Shizuku phase.
-
-While in there: `MainViewModel` / wherever `snapshot()` is called from keeps
-its shape; no screen changes.
+- **What "a probe that could not answer" means.** The ladder answers it
+  today with `RUNNING` — "running, execution bridge is not connected". A
+  bridge that flaps would rather keep the last known status, which needs a
+  holder with a lifetime and its own tests.
+- **Whether the capability snapshot should move into
+  `ui/state/CapabilityRepository`**, so the status can change without a
+  navigation change. The direction is right; it was not this phase, because
+  the plan for it said "no screen changes".
 
 ### Then the rest of Phase 1+ backlog, in order
 
@@ -235,10 +282,12 @@ owns is the one outcome the user cannot undo. Covered by
 
 ### Not implemented
 
-- Termux / Shizuku execution bridges. `Capabilities.snapshot()` returns
-  `Unavailable` unconditionally; `CompanionStatus.AUTHORIZED`, `RUNNING` and
-  `BRIDGE_CONNECTED` are currently unreachable. Architecture decision D11 called
-  for an `ExecutionBackend` seam up front; it does not exist yet.
+- Termux / Shizuku execution bridges. The `ExecutionBackend` seam D11 called
+  for now exists, and the rungs `AUTHORIZED`, `RUNNING` and `BRIDGE_CONNECTED`
+  have a code path that reaches the snapshot, the wire format and the agent
+  briefing. But no backend produces them yet: the shipped
+  `PackagePresenceBackend` only sees whether a companion's package is
+  installed, so at runtime `processExecution` is still `Unavailable`.
 - Plugin install / remove (`installBundle` / `removeBundle`) and schema-driven
   configuration forms.
 - An agent-initiated permission request tool. The app only *states* capabilities
