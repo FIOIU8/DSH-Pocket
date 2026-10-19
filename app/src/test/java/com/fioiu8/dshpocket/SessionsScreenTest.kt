@@ -184,7 +184,10 @@ class SessionsScreenTest {
         assertTrue(result.contains("User global instructions\n\n"))
         assertTrue(result.contains("new generated facts"))
         assertFalse(result.contains("old generated facts"))
-        assertTrue(result.endsWith("\n\nUser-specific footer\n"))
+        // User text is preserved byte for byte. The app rewrites AGENTS.md on every boot,
+        // so normalising the author's own spacing here would mean editing their file on
+        // every upgrade — the opposite of what "preserving user instructions" means.
+        assertTrue(result.endsWith("\n\nUser-specific footer"))
     }
 
     @Test
@@ -199,7 +202,9 @@ class SessionsScreenTest {
 
         assertTrue(result.contains("before\n\n"))
         assertTrue(result.contains("current"))
-        assertTrue(result.contains("middle\norphan text\n"))
+        // Dropping the orphan start marker leaves the line it sat on as a blank line.
+        // The text the user wrote is still there; only the marker disappeared.
+        assertTrue(result.contains("middle\n\norphan text\n"))
         assertTrue(result.endsWith("tail"))
         assertFalse(result.contains("one"))
         assertFalse(result.contains("two"))
