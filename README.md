@@ -20,7 +20,7 @@
 
 - Run the DSH Node.js agent engine locally on Android; the engine is managed by a foreground service.
 - Switch between the native chat interface and the official DSH web interface; supports streaming responses, session browsing, archiving, and restoring.
-- Configure model providers and agent presets, inspect installed plugins, and manage runtime and capability settings.
+- Configure model providers, inspect installed plugins, and manage runtime and capability settings.
 - Optionally grant all-files access so the agent can read and write files in the shared `DSHPocket` workspace; the app-private workspace is used by default.
 
 The engine and its web UI communicate over `127.0.0.1`. Prompts and related context may leave the device when sent to the model provider configured by the user. Filesystem access depends on the Android capability granted to the app and the selected workspace.
