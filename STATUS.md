@@ -57,10 +57,11 @@ JSON. Phase 1 adds the missing layer.
 Four exit criteria:
 
 1. **Green.** `testDebugUnitTest` and `lintDebug` both pass; the 43
-   `LocalContext*` errors reach zero.
+   `LocalContext*` / `NonObservableLocale` errors reach zero.
 2. **Behaviour equivalence.** The Session vertical slice keeps the current
    behaviour of six behaviours — list, search, filter, grouping, archive,
-   restore — one repository test each.
+   restore — one repository test each, each calling the shipped implementation
+   rather than a copy of it.
 3. **Poll convergence.** `SessionsScreen` no longer owns a `while (true)` loop.
    Verified by re-entering the same screen a second time and observing that
    `session/list` is not fetched again.
@@ -70,7 +71,17 @@ Four exit criteria:
 
 Sequence: `SessionRepository` → `SessionViewModel` → `SessionsScreen` → tests →
 lint → `HomeScreen` as the second consumer, which is what actually proves the
-shared data works.
+shared data works. The Home slice adds two more checks: with both screens
+composed, `session/list` is still called once, and `HomeScreen` does not gain a
+poll loop of its own.
+
+### The lint baseline is 43, measured by a clean run
+
+`clean lintDebug` reports 43 errors: 39 `LocalContextGetResourceValueCall`,
+2 `LocalContextConfigurationRead` (PluginsScreen), 2 `NonObservableLocale`
+(NativeChatScreen). Both extra kinds sit on pre-existing lines — removing the
+`lifecycle-viewmodel-compose` added in this phase leaves the count unchanged at
+43 — so they were masked rather than introduced by an incremental run.
 
 ## Known gaps
 
@@ -106,7 +117,32 @@ owns is the one outcome the user cannot undo. Covered by
   via `AGENTS.md`.
 - Remote Host mode (SSH tunnel).
 
-## Unresolved documentation references
+## Execution constraints
+
+### Do not edit files through a PowerShell text pipeline
+
+Twice now, a `Get-Content -Raw` / `Set-Content` round trip has corrupted source in this
+repo: it injects a UTF-8 BOM where the file had none, and it mangles non-ASCII
+characters — an em dash in a comment came back as `鈥?`.
+
+Use the editor tools, which write UTF-8 without a BOM. If a shell command must touch a
+file, read the bytes, strip `U+FEFF`, and write back through
+`[System.IO.File]::WriteAllText($path, $text, (New-Object System.Text.UTF8Encoding($false)))`
+— then verify the first bytes are not `239,187,191`.
+
+## Known technical debt
+
+### `SessionRepository.createForTest` exists because the real getter is a process singleton
+
+`SessionRepository.get()` caches one instance per process, which is what lets the home
+card and the session screen share one source of truth. A process-wide cache cannot be
+reset from a test, so the class exposes a second constructor for tests.
+
+The clean fix is to hold the cache in a container and inject it, which would delete this
+method. That is not worth a DI framework in a single-module app, so the seam stays and
+this note records why it exists.
+
+
 
 `app/build.gradle.kts` and `RuntimeInstaller.kt` cite `docs/architecture-review.md`
 as the source of their design decisions, but `/docs/` is gitignored so that file

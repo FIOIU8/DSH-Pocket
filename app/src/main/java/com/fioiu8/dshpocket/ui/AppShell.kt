@@ -111,6 +111,18 @@ import kotlinx.coroutines.withContext
 
 /**
  * 导航目标（设计稿抽屉：m3e-canvas.json 的 drawer_* 六项）。
+ *
+ * ## 状态归属规则（Phase 1 放行条件④，后续屏幕照此办理）
+ *
+ * - **导航状态留在 `rememberSaveable`**：`destination`、`settingsSection`、
+ *   `chatPresentation`、各页面的搜索框/筛选/待确认项。它们必须熬过进程被系统杀死，
+ *   而 ViewModel 做不到。
+ * - **数据状态进 ViewModel + Repository**：引擎返回的一切（会话、插件、模型配置）。
+ *   它们是异步的，不该因为切页被 `rememberCoroutineScope` 取消。
+ * - **模型只存原始值**：`@StringRes Int` 与 `LocalizedText` 是两种类型，
+ *   但遵循同一条原则——不要在模型里存渲染完成的字符串。语言在绘制时解析。
+ * - **Composable 只画，不取数**：不新增 `while (true)` 轮询，不手搓
+ *   `LocalContext.current.resources`。轮询由 Repository 统一持有，且必须是幂等启动。
  */
 enum class Destination(@StringRes val labelRes: Int, val icon: ImageVector) {
     Home(com.fioiu8.dshpocket.R.string.nav_home, Icons.Filled.Home),
