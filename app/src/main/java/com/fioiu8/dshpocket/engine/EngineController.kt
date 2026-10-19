@@ -1,6 +1,6 @@
 package com.fioiu8.dshpocket.engine
 
-import android.content.Context
+import android.app.Application
 import android.util.Log
 import com.fioiu8.dshpocket.capability.AgentBriefing
 import com.fioiu8.dshpocket.capability.Capabilities
@@ -41,7 +41,14 @@ sealed interface EngineState {
  * The URL carries a launch token that is minted fresh on every boot and printed exactly
  * once (see D10), so it must be captured here rather than typed by anyone.
  */
-class EngineController(private val context: Context) {
+/**
+ * Holds the application context deliberately: this object outlives every Activity and
+ * lives in a static field, so an Activity context here would leak. Typing the field as
+ * [Application] makes that unrepresentable instead of merely discouraged — lint's
+ * StaticFieldLeak cannot be satisfied by an @Suppress, but it goes quiet for a real
+ * reason once the type no longer admits a leak.
+ */
+class EngineController(private val context: Application) {
 
     companion object {
         private const val TAG = "EngineController"
@@ -55,8 +62,12 @@ class EngineController(private val context: Context) {
         @Volatile
         private var shared: EngineController? = null
 
-        fun get(context: Context): EngineController = shared ?: synchronized(this) {
-            shared ?: EngineController(context.applicationContext).also { shared = it }
+        /**
+         * Callers pass the process-wide [Application], never an Activity or Service, so
+         * the static instance cannot outlive its context.
+         */
+        fun get(application: Application): EngineController = shared ?: synchronized(this) {
+            shared ?: EngineController(application).also { shared = it }
         }
     }
 

@@ -58,7 +58,7 @@ class EngineService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        controller = EngineController.get(applicationContext)
+        controller = EngineController.get(application)
         createNotificationChannel()
         try {
             startForeground(NOTIFICATION_ID, notification(EngineState.Busy("准备中…")))

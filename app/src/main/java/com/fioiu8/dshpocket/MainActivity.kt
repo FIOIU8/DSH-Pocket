@@ -22,7 +22,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         EngineService.start(this)
         // One engine per process; the shell only renders its state.
-        val controller = EngineController.get(applicationContext)
+        val controller = EngineController.get(application)
         setContent {
             DSHPocketTheme {
                 AppShell(
