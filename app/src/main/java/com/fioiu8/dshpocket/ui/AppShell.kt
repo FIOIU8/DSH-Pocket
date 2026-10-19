@@ -215,6 +215,9 @@ fun AppShell(
     if (debugBuild) WebView.setWebContentsDebuggingEnabled(true)
 
     val openDrawer: () -> Unit = { scope.launch { drawerState.open() } }
+    // Resolved in composable scope and captured: stringResource cannot be called from
+    // the evaluateJavascript callback, and LocalContext there would not recompose.
+    val labelChatEmptyResponse = stringResource(com.fioiu8.dshpocket.R.string.chat_empty_response)
     val navigate: (Destination) -> Unit = { dest ->
         destination = dest
         if (dest != Destination.Settings) settingsSection = null
@@ -292,7 +295,7 @@ fun AppShell(
                         wv.loadUrl("${s.baseUrl}/?token=${s.token}")
                     } else {
                         webLoading = false
-                        webLoadError = context.getString(com.fioiu8.dshpocket.R.string.chat_empty_response)
+                        webLoadError = labelChatEmptyResponse
                         Log.e("DshWebView", "SPA remains empty after reload")
                     }
                 } else {
@@ -394,7 +397,7 @@ fun AppShell(
                                         view.loadUrl("${readyState?.baseUrl ?: ""}/?token=${readyState?.token ?: ""}")
                                     } else if (height < 1f) {
                                         webLoading = false
-                                        webLoadError = context.getString(com.fioiu8.dshpocket.R.string.chat_empty_response)
+                                        webLoadError = labelChatEmptyResponse
                                         Log.e("DshWebView", "page finished with empty body after retry")
                                     } else {
                                         webLoading = false

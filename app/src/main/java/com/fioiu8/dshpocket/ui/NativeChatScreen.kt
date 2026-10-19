@@ -172,6 +172,17 @@ fun NativeChatScreen(
     }
     val suggestions = remember(messages) { latestNativeSuggestions(messages) }
 
+    // Resolved here, in composable scope, then captured. `stringResource` cannot be
+    // called from a LaunchedEffect block or a callback lambda, and reading the string
+    // through LocalContext there would not recompose when the language changes.
+    val labelSessionLoadFailed = stringResource(com.fioiu8.dshpocket.R.string.native_session_load_failed)
+    val labelEffortDefault = stringResource(com.fioiu8.dshpocket.R.string.native_effort_default)
+    val labelAssistFailed = stringResource(com.fioiu8.dshpocket.R.string.native_assist_failed)
+    val labelStopFailed = stringResource(com.fioiu8.dshpocket.R.string.native_stop_failed)
+    val labelSendFailed = stringResource(com.fioiu8.dshpocket.R.string.native_send_failed)
+    val labelCreateSessionFailed = stringResource(com.fioiu8.dshpocket.R.string.native_create_session_failed)
+    val labelSwitchModelFailed = stringResource(com.fioiu8.dshpocket.R.string.native_switch_model_failed)
+
     suspend fun loadSessions(engine: EngineState.Ready) {
         val result = chatRpc(
             engine.baseUrl,
@@ -194,14 +205,14 @@ fun NativeChatScreen(
         )
         val projection = when (projectionResult) {
             is RpcResult.Err -> {
-                error = context.getString(com.fioiu8.dshpocket.R.string.native_session_load_failed) + ": ${projectionResult.message}"
+                error = labelSessionLoadFailed + ": ${projectionResult.message}"
                 return
             }
             is RpcResult.Ok -> projectionResult.value as? JSONObject
         }
         val cursor = projection?.optLong("asOfSeq", Long.MIN_VALUE) ?: Long.MIN_VALUE
         if (cursor == Long.MIN_VALUE) {
-            error = context.getString(com.fioiu8.dshpocket.R.string.native_session_load_failed) + ": response cursor missing"
+            error = labelSessionLoadFailed + ": response cursor missing"
             return
         }
         running = sessions.firstOrNull { it.id == id }?.running ?: false
@@ -222,7 +233,7 @@ fun NativeChatScreen(
                 val page = pageResult.value as? JSONObject
                 val records = page?.optJSONArray("records")
                 if (records == null) {
-                    error = context.getString(com.fioiu8.dshpocket.R.string.native_session_load_failed) + ": message records missing"
+                    error = labelSessionLoadFailed + ": message records missing"
                     return
                 }
                 val parsed = parseNativeChatMessages(records)
@@ -230,7 +241,7 @@ fun NativeChatScreen(
                 loadedCursor = cursor
                 error = null
             }
-            is RpcResult.Err -> error = context.getString(com.fioiu8.dshpocket.R.string.native_session_load_failed) + ": ${pageResult.message}"
+            is RpcResult.Err -> error = labelSessionLoadFailed + ": ${pageResult.message}"
         }
     }
 
@@ -239,7 +250,7 @@ fun NativeChatScreen(
         val catalog = chatRpc(engine.baseUrl, "session/modelCatalog", EngineApi.emptyArgs(), engine.token)
         if (catalog is RpcResult.Ok) modelOptions = parseNativeModelCatalog(
             catalog.value as? JSONObject,
-            context.getString(com.fioiu8.dshpocket.R.string.native_effort_default),
+            labelEffortDefault,
         )
         val themeResult = chatRpc(engine.baseUrl, "dshPocketUi/getNativeChatTheme", EngineApi.emptyArgs(), engine.token)
         if (themeResult is RpcResult.Ok) {
@@ -307,7 +318,7 @@ fun NativeChatScreen(
                 }
             }.onFailure { failure ->
                 if (failure !is kotlinx.coroutines.CancellationException) {
-                    error = "${context.getString(com.fioiu8.dshpocket.R.string.native_session_load_failed)}: ${failure.message.orEmpty()}"
+                    error = "${labelSessionLoadFailed}: ${failure.message.orEmpty()}"
                 }
             }
         }
@@ -431,7 +442,7 @@ fun NativeChatScreen(
                                                             ),
                                                             engine.token,
                                                         )
-                                                        if (result is RpcResult.Err) error = "${context.getString(com.fioiu8.dshpocket.R.string.native_assist_failed)}: ${result.message}"
+                                                        if (result is RpcResult.Err) error = "${labelAssistFailed}: ${result.message}"
                                                         loadSessions(engine)
                                                         refreshMessages(engine, id)
                                                         sending = false
@@ -474,7 +485,7 @@ fun NativeChatScreen(
                                         EngineApi.requestArgs(JSONObject().put("sessionId", id)),
                                         engine.token,
                                     )
-                                    if (result is RpcResult.Err) error = "${context.getString(com.fioiu8.dshpocket.R.string.native_stop_failed)}: ${result.message}"
+                                    if (result is RpcResult.Err) error = "${labelStopFailed}: ${result.message}"
                                     loadSessions(engine)
                                     refreshMessages(engine, id)
                                 }
@@ -501,7 +512,7 @@ fun NativeChatScreen(
                                         targetId = (((create as? RpcResult.Ok)?.value as? JSONObject)
                                             ?.optString("sessionId"))?.takeIf { it.isNotBlank() }
                                         if (targetId == null) {
-                                            error = (create as? RpcResult.Err)?.message ?: context.getString(com.fioiu8.dshpocket.R.string.native_create_session_failed)
+                                            error = (create as? RpcResult.Err)?.message ?: labelCreateSessionFailed
                                             draft = text
                                             sending = false
                                             return@launch
@@ -527,7 +538,7 @@ fun NativeChatScreen(
                                             refreshMessages(engine, targetId)
                                         }
                                         is RpcResult.Err -> {
-                                            error = "${context.getString(com.fioiu8.dshpocket.R.string.native_send_failed)}: ${result.message}"
+                                            error = "${labelSendFailed}: ${result.message}"
                                             draft = text
                                         }
                                     }
@@ -591,7 +602,7 @@ fun NativeChatScreen(
                     } else {
                         TextButton(onClick = { pickerModel = null }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(com.fioiu8.dshpocket.R.string.native_back_to_models)) }
                         val option = pickerModel!!
-                        val efforts = option.efforts.ifEmpty { listOf("default" to context.getString(com.fioiu8.dshpocket.R.string.native_effort_default)) }
+                        val efforts = option.efforts.ifEmpty { listOf("default" to labelEffortDefault) }
                         efforts.forEach { (effortId, effortName) ->
                             TextButton(
                                 onClick = {
@@ -608,7 +619,7 @@ fun NativeChatScreen(
                                             targetId = ((created as? RpcResult.Ok)?.value as? JSONObject)?.optString("sessionId")
                                                 ?.takeIf(String::isNotBlank)
                                             if (targetId == null) {
-                                                error = (created as? RpcResult.Err)?.message ?: context.getString(com.fioiu8.dshpocket.R.string.native_create_session_failed)
+                                                error = (created as? RpcResult.Err)?.message ?: labelCreateSessionFailed
                                                 return@launch
                                             }
                                             sessionId = targetId
@@ -619,7 +630,7 @@ fun NativeChatScreen(
                                             .put("model", option.modelId)
                                             .apply { if (effortId != "default") put("reasoningEffort", effortId) }
                                         when (val result = chatRpc(engine.baseUrl, "session/selectModel", EngineApi.requestArgs(request), engine.token)) {
-                                            is RpcResult.Err -> error = "${context.getString(com.fioiu8.dshpocket.R.string.native_switch_model_failed)}: ${result.message}"
+                                            is RpcResult.Err -> error = "${labelSwitchModelFailed}: ${result.message}"
                                             is RpcResult.Ok -> {
                                                 error = null
                                                 showModelPicker = false
