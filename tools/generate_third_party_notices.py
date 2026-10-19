@@ -117,7 +117,7 @@ def generate(runtime_zip: Path) -> str:
         "",
         "## Termux package closure",
         "",
-        "Versions are resolved from the selected architecture's Termux package index during runtime collection. License identifiers below follow the Termux package recipes. The current archive contains invalid HTTP error responses at the expected ICU license paths; the warning below identifies them, and they must be replaced with the upstream ICU license text before redistributing that runtime.",
+        "Versions are resolved from the selected architecture's Termux package index during runtime collection. License identifiers below follow the Termux package recipes. Termux ships each package's `share/doc/<pkg>/copyright` as a symlink into `share/LICENSES`, so the collector also pulls `termux-licenses` to resolve those links to real text, then drops its payload (`share/LICENSES`, `share/doc/termux-licenses`); only the per-package notices below are redistributed. The current archive contains invalid HTTP error responses at the expected ICU license paths; the warning below identifies them, and they must be replaced with the upstream ICU license text before redistributing that runtime.",
         "",
         "| Package | Version | License | Termux package recipe |",
         "| --- | --- | --- | --- |",

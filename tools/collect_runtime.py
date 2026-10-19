@@ -11,6 +11,9 @@ here (the DSH sandbox blocks piped child stdio for some runtimes):
 
 Closure is deliberately GPL-free: no bash / readline / ncurses / libiconv /
 coreutils / termux-tools. The agent shell falls back to Android's /system/bin/sh.
+`termux-licenses` is pulled only so the `share/doc/<pkg>/copyright` symlinks
+resolve to real licence text; its own payload is dropped again in `pack`, so no
+GPL/LGPL/AGPL code or licence-text tree is shipped.
 """
 from __future__ import annotations
 
@@ -41,6 +44,10 @@ CLOSURE = [
     "ca-certificates",# MPL-2.0 (Mozilla CA bundle, file-level copyleft, not GPL)
     "ripgrep",        # MIT          - fs search
     "pcre2",          # BSD-3-Clause
+    # Licence-text source only. Termux ships `share/doc/<pkg>/copyright` as a
+    # relative symlink into `share/LICENSES`, which lives in this package; the
+    # symlinks were dangling until it was pulled, which aborted the flatten step.
+    "termux-licenses",
 ]
 
 
@@ -428,6 +435,17 @@ def cmd_fetch(args) -> int:
         extract_deb(dest, root)
 
     usr = find_termux_usr(root)
+    # A package can ship a relative symlink into a directory owned by a package
+    # outside the closure (Termux moved licence texts into `termux-licenses`).
+    # Such a link is dangling here and `copytree(symlinks=False)` below would
+    # abort the whole fetch on it. Drop what remains so a single missing text
+    # degrades to a warning instead of a build failure.
+    dangling = [p for p in usr.rglob("*") if p.is_symlink() and not p.exists()]
+    for p in dangling:
+        p.unlink()
+    if dangling:
+        names = ", ".join(str(p.relative_to(usr)) for p in dangling)
+        print(f"[fetch] WARNING dropped {len(dangling)} dangling symlink(s): {names}")
     print(f"[fetch] flattening {usr}")
     for item in usr.iterdir():
         target = root / item.name
@@ -501,6 +519,10 @@ def cmd_pack(args) -> int:
             p.unlink(missing_ok=True)
     shutil.rmtree(root / "share" / "man", ignore_errors=True)
     shutil.rmtree(root / "include", ignore_errors=True)
+    # `termux-licenses` was pulled so fetch could dereference each package's
+    # copyright symlink into a real file; its own payload is bulk we do not ship.
+    shutil.rmtree(root / "share" / "LICENSES", ignore_errors=True)
+    shutil.rmtree(root / "share" / "doc" / "termux-licenses", ignore_errors=True)
     # NOTE: share/doc/<pkg>/copyright is intentionally KEPT (unlike the reference
     # project, which deletes it) - it is the licence text for what we ship.
 
