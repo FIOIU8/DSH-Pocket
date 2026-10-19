@@ -41,7 +41,7 @@
     <string name="home_plugins">Plugin management</string>
     <string name="home_plugins_supporting">Install, enable, and configure plugins</string>
     <string name="home_models">Model configuration</string>
-    <string name="home_models_supporting">Switch models and Agent presets</string>
+    <string name="home_models_supporting">Switch models and providers</string>
     <string name="home_node_running">Node.js running</string>
     <string name="home_starting">Starting</string>
     <string name="home_engine_error">Engine error</string>
