@@ -66,6 +66,7 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -718,6 +719,9 @@ private fun MessageMetadata(
     onCopy: () -> Unit,
 ) {
     val fromUser = message.role == "user"
+    // Read the locale observably. Locale.getDefault() would not recompose when the user
+    // switches the app language, leaving numbers formatted in the old locale.
+    val locale = LocalConfiguration.current.locales[0]
     val metadata = buildList {
         if (preferences.showMessageTime && message.time > 0) add(formatMessageTime(message.time))
         if (preferences.showTokenUsage) {
@@ -726,9 +730,9 @@ private fun MessageMetadata(
         }
         if (preferences.showDuration) {
             message.durationMs?.let { duration ->
-                add(if (duration >= 1000) "%.1fs".format(Locale.getDefault(), duration / 1000.0) else "${duration}ms")
+                add(if (duration >= 1000) "%.1fs".format(locale, duration / 1000.0) else "${duration}ms")
                 if (message.outputTokens != null && duration > 0) {
-                    add("%.1f tok/s".format(Locale.getDefault(), message.outputTokens * 1000.0 / duration))
+                    add("%.1f tok/s".format(locale, message.outputTokens * 1000.0 / duration))
                 }
             }
         }
