@@ -83,23 +83,6 @@ class SessionRepository(
         /** Test seam; the shared instance is process-wide and cannot be reset otherwise. */
         fun createForTest(scope: CoroutineScope, source: () -> SessionSource?) =
             SessionRepository(scope, source)
-
-        fun matches(
-            row: SessionRow,
-            archivedIds: Set<String>,
-            running: Boolean?,
-            query: String,
-        ): Boolean {
-            val archived = row.id in archivedIds
-            val inFilter = when (running) {
-                null -> true
-                true -> !archived && row.running
-                false -> !archived && !row.running
-            }
-            return inFilter && (query.isBlank() || row.title.orEmpty().contains(query, ignoreCase = true))
-        }
-
-        fun archived(row: SessionRow, archivedIds: Set<String>): Boolean = row.id in archivedIds
     }
 
     private val _state = MutableStateFlow(SessionUiState())
@@ -188,6 +171,46 @@ class SessionRepository(
         }
         refresh()
     }
+}
+
+/** Which slice of the list the user asked for. Mirrors the screen's segmented control. */
+enum class SessionFilter { All, Running, Finished, Archived }
+
+/**
+ * The search, filter and grouping rules.
+ *
+ * These live here rather than in the composable for one reason: inline in a Composable
+ * they cannot be tested, and the first draft of these tests "passed" by reimplementing
+ * the same three lines instead of calling them. Anything the screen decides about which
+ * rows to show is behaviour worth locking down.
+ */
+object SessionQuery {
+
+    /** Title search. A row with no title matches only a blank query, as it did before. */
+    fun matches(row: SessionRow, query: String): Boolean =
+        query.isBlank() || row.title.orEmpty().contains(query, ignoreCase = true)
+
+    fun isArchived(row: SessionRow, archivedIds: Set<String>): Boolean = row.id in archivedIds
+
+    fun visible(
+        rows: List<SessionRow>,
+        archivedIds: Set<String>,
+        filter: SessionFilter,
+        query: String,
+    ): List<SessionRow> = rows.filter { row ->
+        val archived = isArchived(row, archivedIds)
+        val inFilter = when (filter) {
+            SessionFilter.All -> true
+            SessionFilter.Running -> !archived && row.running
+            SessionFilter.Finished -> !archived && !row.running
+            SessionFilter.Archived -> archived
+        }
+        inFilter && matches(row, query)
+    }
+
+    /** Groups by the last path segment of `cwd`, falling back for rows that have none. */
+    fun byWorkspace(rows: List<SessionRow>, fallback: String): Map<String, List<SessionRow>> =
+        rows.groupBy { it.cwd?.substringAfterLast('/') ?: fallback }
 }
 
 /** Reads `archivedSessionIds` out of a write response; a missing field keeps the current set. */

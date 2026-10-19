@@ -1,7 +1,9 @@
 package com.fioiu8.dshpocket
 
 import com.fioiu8.dshpocket.engine.EngineApi.RpcResult
+import com.fioiu8.dshpocket.ui.state.SessionFilter
 import com.fioiu8.dshpocket.ui.state.SessionLoadState
+import com.fioiu8.dshpocket.ui.state.SessionQuery
 import com.fioiu8.dshpocket.ui.state.SessionRepository
 import com.fioiu8.dshpocket.ui.state.SessionRow
 import com.fioiu8.dshpocket.ui.state.SessionSource
@@ -147,6 +149,7 @@ class SessionRepositoryTest {
                 rowsArray(
                     row("a", "Refactor Engine"),
                     row("b", "Write release notes"),
+                    row("c", null),
                 ),
             ),
         )
@@ -155,10 +158,12 @@ class SessionRepositoryTest {
         repository.refresh()
         val rows = (repository.state.value.load as SessionLoadState.Ready).rows
 
-        fun search(q: String) = rows.filter { it.title.orEmpty().contains(q, ignoreCase = true) }
+        fun search(q: String) = SessionQuery.visible(rows, emptySet(), SessionFilter.All, q)
 
         assertEquals(listOf("a"), search("REFACTOR").map { it.id })
-        assertEquals(2, search("").size)
+        assertEquals(listOf("a"), search("engine").map { it.id })
+        assertEquals("a blank query keeps every row, including untitled ones", 3, search("").size)
+        assertEquals("an untitled row never matches a real query", emptyList<String>(), search("x").map { it.id })
     }
 
     private fun model(
@@ -189,18 +194,13 @@ class SessionRepositoryTest {
         )
         val archivedIds = setOf("a")
 
-        fun visible(running: Boolean?) = rows.filter { row ->
-            val isArchived = row.id in archivedIds
-            when (running) {
-                null -> true
-                true -> !isArchived && row.running
-                false -> !isArchived && !row.running
-            }
-        }
+        fun ids(filter: SessionFilter) =
+            SessionQuery.visible(rows, archivedIds, filter, "").map { it.id }
 
-        assertEquals(listOf("a", "b", "c"), visible(null).map { it.id })
-        assertEquals(listOf("b"), visible(true).map { it.id })
-        assertEquals(listOf("c"), visible(false).map { it.id })
+        assertEquals(listOf("a", "b", "c"), ids(SessionFilter.All))
+        assertEquals(listOf("b"), ids(SessionFilter.Running))
+        assertEquals(listOf("c"), ids(SessionFilter.Finished))
+        assertEquals(listOf("a"), ids(SessionFilter.Archived))
     }
 
     // ---- 4. grouping --------------------------------------------------------------------
@@ -214,8 +214,7 @@ class SessionRepositoryTest {
             model("d", "Four", cwd = null),
         )
 
-        val groups = rows.groupBy { it.cwd?.substringAfterLast('/') ?: "(default)" }
-            .mapValues { (_, v) -> v.map { it.id } }
+        val groups = SessionQuery.byWorkspace(rows, "(default)").mapValues { (_, v) -> v.map { it.id } }
 
         assertEquals(listOf("a", "b"), groups["alpha"])
         assertEquals(listOf("c"), groups["beta"])
