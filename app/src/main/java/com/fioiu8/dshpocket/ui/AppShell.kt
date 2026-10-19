@@ -109,10 +109,10 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/**
- * 导航目标（设计稿抽屉：m3e-canvas.json 的 drawer_* 六项）。
- *
- * ## 状态归属规则（Phase 1 放行条件④，后续屏幕照此办理）
+/*
+ * =============================================================================
+ * 状态归属规则 —— Phase 1 放行条件④。写在文件头而非某个枚举上，
+ * 因为它约束的是本包所有屏幕，不是某一段导航。
  *
  * - **导航状态留在 `rememberSaveable`**：`destination`、`settingsSection`、
  *   `chatPresentation`、各页面的搜索框/筛选/待确认项。它们必须熬过进程被系统杀死，
@@ -121,8 +121,16 @@ import kotlinx.coroutines.withContext
  *   它们是异步的，不该因为切页被 `rememberCoroutineScope` 取消。
  * - **模型只存原始值**：`@StringRes Int` 与 `LocalizedText` 是两种类型，
  *   但遵循同一条原则——不要在模型里存渲染完成的字符串。语言在绘制时解析。
- * - **Composable 只画，不取数**：不新增 `while (true)` 轮询，不手搓
- *   `LocalContext.current.resources`。轮询由 Repository 统一持有，且必须是幂等启动。
+ * - **Composable 只画，不取数**：不手搓 `LocalContext.current.resources`，
+ *   不为自己的数据另起轮询。轮询由 Repository 统一持有，且必须幂等启动。
+ *
+ * 例外：HomeScreen 里那个一秒 `while (true)` 是运行时长读数的本地时钟，
+ * 不发 RPC，属于该 Composable，不归 Repository 管。
+ * =============================================================================
+ */
+
+/**
+ * 导航目标（设计稿抽屉：m3e-canvas.json 的 drawer_* 六项）。
  */
 enum class Destination(@StringRes val labelRes: Int, val icon: ImageVector) {
     Home(com.fioiu8.dshpocket.R.string.nav_home, Icons.Filled.Home),
