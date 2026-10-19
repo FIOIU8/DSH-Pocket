@@ -63,19 +63,15 @@ data class SettingsSnapshot(
 }
 
 data class ModelUiState(
-    val load: ModelLoadState = ModelLoadState.Loading,
-    val busy: Boolean = false,
     val settings: SettingsSnapshot = SettingsSnapshot(),
     val builtinProviders: List<Pair<String, String>> = emptyList(),
     val keyStates: Map<String, Boolean> = emptyMap(),
     val accountView: JSONObject? = null,
-    /** Transient one-shot messages set by a write and cleared on the next reload. */
-    val actionError: String? = null,
-    val credentialError: String? = null,
+    /**
+     * The load-error banner. Cleared at the start of every reload and set when
+     * `settings/describe` fails. Everything below survives a failed reload — the
+     * shipped screen keeps showing the last good data under the banner, and that is
+     * deliberately preserved here rather than "improved".
+     */
+    val error: String? = null,
 )
-
-sealed interface ModelLoadState {
-    data object Loading : ModelLoadState
-    data class Ready(val snapshot: SettingsSnapshot) : ModelLoadState
-    data class Failed(val message: String) : ModelLoadState
-}

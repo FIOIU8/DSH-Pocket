@@ -58,11 +58,11 @@ class EngineModelSource(private val baseUrl: String, private val token: String) 
 }
 
 /**
- * Owns model configuration and the reload that produces it.
+ * Owns the model configuration read path.
  *
- * The screen used to run this as a `LaunchedEffect(tick)` that wrote into a dozen local
- * `mutableStateOf`s. Everything below is the same sequence, moved somewhere it can be
- * observed and tested.
+ * Writes stay in the screen: their optimistic-lock arguments, local form drafts and
+ * per-step busy handling are UI concerns, and the shipped error messages are set and
+ * cleared at explicit user-initiated points there — never by an automatic reload.
  */
 class ModelRepository(private val source: () -> ModelSource?) {
 
@@ -82,62 +82,61 @@ class ModelRepository(private val source: () -> ModelSource?) {
     private val _state = MutableStateFlow(ModelUiState())
     val state: StateFlow<ModelUiState> = _state.asStateFlow()
 
-    /** Transient message shown after a write; cleared by the next [reload]. */
-    fun setActionError(message: String?) = _state.update { it.copy(actionError = message) }
-
-    fun setCredentialError(message: String?) = _state.update { it.copy(credentialError = message) }
-
     /**
-     * Reload: describe, then the three follow-ups it feeds.
+     * Reload, replicating the shipped LaunchedEffect(tick) read path line for line.
      *
-     * Each follow-up is independent. A failure of `llm/listProviders` or
-     * `credentials/describe` leaves that part empty rather than failing the whole screen,
-     * which is how it behaved before this moved.
+     * The fields that are NOT updated on failure are significant, and they match the
+     * original:
+     * - a failed `settings/describe` sets [ModelUiState.error] and keeps all data;
+     * - a failed `llm/listProviders` or `credentials/describe` keeps the previous
+     *   builtin list / key states (same retention class as the archived-set gap);
+     * - empty refs leave the key states untouched;
+     * - `account/getState` is the one call that overwrites unconditionally, so a
+     *   failure nulls it (`as?` chain in the original).
+     * `error` itself is cleared at the start of every reload; it is the only field
+     * that is. Write-path messages (actionError) live in the screen and are cleared
+     * at explicit user-initiated points there, never by an automatic reload.
      */
     suspend fun reload() {
         val source = source() ?: return
-        _state.update { it.copy(busy = true, actionError = null, credentialError = null) }
+        _state.update { it.copy(error = null) }
 
         val describe = source.describe()
-        if (describe !is RpcResult.Ok) {
-            _state.update {
-                it.copy(
-                    busy = false,
-                    load = ModelLoadState.Failed((describe as RpcResult.Err).describe()),
-                )
-            }
+        // RpcResult is sealed Ok/Err, so this cast always succeeds; the screen's
+        // `?: unknown` fallback for the same situation is dead code.
+        val describeErr = describe as? RpcResult.Err
+        if (describeErr != null) {
+            _state.update { it.copy(error = "${describeErr.code}: ${describeErr.message}") }
             return
         }
 
-        val namespaces = (describe.value as? JSONObject)?.optJSONArray("namespaces")
+        // The Err case returned above; RpcResult is sealed Ok/Err, so this lookup always
+        // holds. The original's `?: JSONArray()` fallback is covered by the parser, which
+        // treats a null namespace array as "no namespaces".
+        val namespaces = ((describe as? RpcResult.Ok)?.value as? JSONObject)?.optJSONArray("namespaces")
         val settings = ModelParser.settings(namespaces)
+        _state.update { it.copy(settings = settings) }
 
-        val builtin = (source.listProviders() as? RpcResult.Ok)
-            ?.let { ModelParser.providerList(EngineApi.itemsOf(it.value)) }
-            .orEmpty()
+        // A failing provider list keeps the previous one; the official-provider check
+        // below then runs against that retained list, exactly like the original.
+        (source.listProviders() as? RpcResult.Ok)?.let { ok ->
+            val builtin = ModelParser.providerList(EngineApi.itemsOf(ok.value))
+            _state.update { it.copy(builtinProviders = builtin) }
+        }
 
         val account = (source.accountState() as? RpcResult.Ok)?.value as? JSONObject
+        _state.update { it.copy(accountView = account) }
 
-        val refs = ModelParser.keyRefs(settings.providers, settings.officialApiKeyRef, builtin)
-        val keyStates = if (refs.isEmpty()) {
-            emptyMap()
-        } else {
-            (source.describeCredentials(refs) as? RpcResult.Ok)
-                ?.let { ModelParser.keyStates(it.value, refs) }
-                .orEmpty()
-        }
-
-        _state.update {
-            it.copy(
-                busy = false,
-                load = ModelLoadState.Ready(settings),
-                settings = settings,
-                builtinProviders = builtin,
-                keyStates = keyStates,
-                accountView = account,
-            )
+        val refs = ModelParser.keyRefs(
+            settings.providers,
+            settings.officialApiKeyRef,
+            _state.value.builtinProviders,
+        )
+        if (refs.isNotEmpty()) {
+            (source.describeCredentials(refs) as? RpcResult.Ok)?.let { ok ->
+                val keyStates = ModelParser.keyStates(ok.value, refs)
+                _state.update { it.copy(keyStates = keyStates) }
+            }
         }
     }
-
-    private fun RpcResult.Err.describe(): String = "$code: $message"
 }
