@@ -607,7 +607,7 @@ fun NativeChatScreen(
                                             targetId = ((created as? RpcResult.Ok)?.value as? JSONObject)?.optString("sessionId")
                                                 ?.takeIf(String::isNotBlank)
                                             if (targetId == null) {
-                                            error = (created as? RpcResult.Err)?.message ?: context.getString(com.fioiu8.dshpocket.R.string.native_create_session_failed)
+                                                error = (created as? RpcResult.Err)?.message ?: context.getString(com.fioiu8.dshpocket.R.string.native_create_session_failed)
                                                 return@launch
                                             }
                                             sessionId = targetId
