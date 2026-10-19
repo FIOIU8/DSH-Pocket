@@ -15,7 +15,7 @@ import com.fioiu8.dshpocket.capability.CapabilitySnapshot
 import com.fioiu8.dshpocket.capability.CapabilityState
 import com.fioiu8.dshpocket.capability.CompanionStatus
 import com.fioiu8.dshpocket.capability.isInstalled
-import com.fioiu8.dshpocket.capability.ExecutionBackend
+import com.fioiu8.dshpocket.capability.ExecutionBackendKind
 import com.fioiu8.dshpocket.capability.ProcessExecutionCapability
 import org.json.JSONArray
 import org.json.JSONObject
@@ -230,7 +230,7 @@ class SessionsScreenTest {
             allFiles = CapabilityState.GRANTED,
             termux = CompanionStatus.RUNNING,
             shizuku = CompanionStatus.NOT_INSTALLED,
-            processExecution = ProcessExecutionCapability.Available(ExecutionBackend.TERMUX),
+            processExecution = ProcessExecutionCapability.Available(ExecutionBackendKind.TERMUX),
         )
 
         val json = org.json.JSONObject(AgentBriefing.capabilitiesJson(snapshot))
