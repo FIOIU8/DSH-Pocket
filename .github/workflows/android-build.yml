@@ -11,26 +11,34 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Java
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '25'
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: '22'
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.12'
 
+      # setup-android@v3 shipped a default package list of "tools platform-tools".
+      # The obsolete "tools" package is gone from the Google SDK repository, so
+      # sdkmanager exits 1 with "Warning: Failed to find package 'tools'" and the
+      # whole job dies before Gradle ever runs. v4 defaults to "platform-tools"
+      # only; the platform and build-tools the build actually needs are listed
+      # explicitly so the build does not depend on the runner image contents.
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
+        with:
+          packages: 'platform-tools platforms;android-37.0 build-tools;36.0.0'
 
       - name: Create temporary debug signing key
         run: |
@@ -64,7 +72,7 @@ jobs:
           -PruntimeArch=aarch64
 
       - name: Upload debug APK
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: dsh-pocket-arm64-ci-${{ github.run_number }}
           path: app/build/outputs/apk/debug/app-debug.apk
