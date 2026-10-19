@@ -40,6 +40,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -74,6 +75,7 @@ import com.fioiu8.dshpocket.ui.theme.dshControl
  * DeepSeek Account 使用引擎提供的网页登录授权接口，不写入普通 API Key 凭据。
  */
 import com.fioiu8.dshpocket.ui.state.PROVIDER_PROTOCOLS as providerProtocols
+import com.fioiu8.dshpocket.ui.state.ModelRepository
 import com.fioiu8.dshpocket.ui.state.ProviderDraft
 import com.fioiu8.dshpocket.ui.state.ProviderInfo
 import com.fioiu8.dshpocket.ui.state.encodeProviderModels
@@ -85,7 +87,7 @@ import com.fioiu8.dshpocket.ui.state.providerCredentialRef
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ModelsScreen(state: EngineState, onMenu: () -> Unit) {
+fun ModelsScreen(state: EngineState, onMenu: () -> Unit, modelRepository: ModelRepository) {
     val ready = state as? EngineState.Ready
     if (ready == null) {
         Scaffold(topBar = { DshTopAppBar(title = stringResource(com.fioiu8.dshpocket.R.string.nav_models), onMenu = onMenu) }) { padding ->
@@ -106,13 +108,10 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit) {
     var actionError by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
 
-    var defaultProvider by remember { mutableStateOf<String?>(null) }
-    var defaultModel by remember { mutableStateOf<String?>(null) }
-    var modelRevision by remember { mutableStateOf<Long?>(null) }
-    var providerRevision by remember { mutableStateOf<Long?>(null) }
-    var providers by remember { mutableStateOf<List<ProviderInfo>>(emptyList()) }
-    var builtinProviders by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
-    var keyStates by remember { mutableStateOf<Map<String, Boolean>>(emptyMap()) }
+    // The model repository owns the read path. `collectAsState` keeps every read fresh
+    // through the delegate, both in render scope and inside write callbacks - the same
+    // property the replaced `by remember` delegates had.
+    val modelState by modelRepository.state.collectAsState()
 
     var pickingProvider by remember { mutableStateOf(false) }
     var pickingModel by remember { mutableStateOf(false) }
@@ -134,15 +133,11 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit) {
     var selectedDiscoveredModels by remember { mutableStateOf<Set<String>>(emptySet()) }
     var officialApiPage by remember { mutableStateOf(false) }
     var officialApiKey by remember { mutableStateOf("") }
-    var officialApiKeyRef by remember { mutableStateOf("DEEPSEEK_API_KEY") }
-    var accountView by remember { mutableStateOf<JSONObject?>(null) }
     val context = LocalContext.current
 
     // Resolved here, in composable scope, then captured. `stringResource` cannot be
     // called from a LaunchedEffect block or a callback lambda, and reading the string
     // through LocalContext there would not recompose when the language changes.
-    val labelSaveError = stringResource(com.fioiu8.dshpocket.R.string.models_save_error)
-    val labelSaveServiceError = stringResource(com.fioiu8.dshpocket.R.string.models_save_service_error)
     val labelSaveApiKey = stringResource(com.fioiu8.dshpocket.R.string.models_save_api_key)
     val labelAddOneError = stringResource(com.fioiu8.dshpocket.R.string.models_add_one_error)
     val labelUrlError = stringResource(com.fioiu8.dshpocket.R.string.models_url_error)
@@ -156,7 +151,6 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit) {
     val labelStartLoginFailed = stringResource(com.fioiu8.dshpocket.R.string.models_start_login_failed)
     val labelSignoutFailed = stringResource(com.fioiu8.dshpocket.R.string.models_signout_failed)
     val labelCancelLoginFailed = stringResource(com.fioiu8.dshpocket.R.string.models_cancel_login_failed)
-    val labelErrorUnknown = stringResource(com.fioiu8.dshpocket.R.string.error_unknown)
     val labelClear = stringResource(com.fioiu8.dshpocket.R.string.models_clear)
 
     // Format-arg variants: the arguments (engine error codes) only exist inside the
@@ -208,7 +202,7 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit) {
             val args = JSONObject()
                 .put("ns", "agent-default-model")
                 .put("patch", patch)
-            modelRevision?.let { args.put("expectedRevision", it) }
+            modelState.settings.modelRevision?.let { args.put("expectedRevision", it) }
             val result = EngineApi.rpc(ready.baseUrl, "settings/update", args, ready.token)
             busy = false
             when (result) {
@@ -228,8 +222,8 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit) {
             error = labelUrlError
             return
         }
-        if (!Regex("^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$").matches(draft.id) ||
-            (existing == null && providers.any { it.id == draft.id })
+        if (!isValidProviderId(draft.id) ||
+            (existing == null && modelState.settings.providers.any { it.id == draft.id })
         ) {
             error = labelServiceIdHint
             return
@@ -243,7 +237,7 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit) {
             error = labelHeadersError
             return
         }
-        if (defaultProvider == draft.id && defaultModel?.let { model -> modelEntries.none { it.first == model } } == true) {
+        if (modelState.settings.defaultProvider == draft.id && modelState.settings.defaultModel?.let { model -> modelEntries.none { it.first == model } } == true) {
             error = labelDefaultRemovedError
             return
         }
@@ -297,7 +291,7 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit) {
                 }
             }
             val args = JSONObject().put("ns", "llm-pi-ai").put("ops", ops)
-            providerRevision?.let { args.put("expectedRevision", it) }
+            modelState.settings.providerRevision?.let { args.put("expectedRevision", it) }
             when (val result = EngineApi.rpc(ready.baseUrl, "settings/mutate", args, ready.token)) {
                 is RpcResult.Err -> actionError = formatResource(com.fioiu8.dshpocket.R.string.models_save_service_error, result.code, result.message)
                 is RpcResult.Ok -> {
@@ -327,7 +321,7 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit) {
     }
 
     fun removeProvider(provider: ProviderInfo) {
-        if (defaultProvider == provider.id) {
+        if (modelState.settings.defaultProvider == provider.id) {
             error = labelDefaultServiceDeleteError
             deleteProvider = null
             return
@@ -335,7 +329,7 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit) {
         scope.launch {
             busy = true
             error = null
-            val credentialRef = provider.apiKeyEnv?.takeIf { keyStates[it] == true }
+            val credentialRef = provider.apiKeyEnv?.takeIf { modelState.keyStates[it] == true }
             if (credentialRef != null) {
                 when (val credential = EngineApi.rpc(
                     ready.baseUrl,
@@ -358,7 +352,7 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit) {
                     .put("path", JSONArray().put("providers").put(provider.id)),
             )
             val args = JSONObject().put("ns", "llm-pi-ai").put("ops", ops)
-            providerRevision?.let { args.put("expectedRevision", it) }
+            modelState.settings.providerRevision?.let { args.put("expectedRevision", it) }
             when (val result = EngineApi.rpc(ready.baseUrl, "settings/mutate", args, ready.token)) {
                 is RpcResult.Err -> {
                     actionError = formatResource(com.fioiu8.dshpocket.R.string.models_delete_service_error, result.code, result.message)
@@ -374,116 +368,18 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit) {
     LaunchedEffect(tick) {
         busy = true
         error = null
-        val describe = EngineApi.rpc(ready.baseUrl, "settings/describe", EngineApi.emptyArgs(), ready.token)
-        if (describe !is RpcResult.Ok) {
-            busy = false
-            error = (describe as? RpcResult.Err)?.let { "${it.code}: ${it.message}" } ?: labelErrorUnknown
-            return@LaunchedEffect
-        }
-        var loadedProviders = providers
-        var resolvedOfficialKeyRef = "DEEPSEEK_API_KEY"
-        val namespaces = (describe.value as? JSONObject)?.optJSONArray("namespaces") ?: JSONArray()
-        for (i in 0 until namespaces.length()) {
-            val ns = namespaces.optJSONObject(i) ?: continue
-            when (ns.optString("ns")) {
-                "agent-default-model" -> {
-                    val value = ns.optJSONObject("value")
-                    defaultProvider = value?.optString("provider")?.takeIf { it.isNotBlank() }
-                    defaultModel = value?.optString("model")?.takeIf { it.isNotBlank() }
-                    if (ns.has("revision")) modelRevision = ns.optLong("revision")
-                }
-
-                "llm-pi-ai" -> {
-                    if (ns.has("revision")) providerRevision = ns.optLong("revision")
-                    val configs = ns.optJSONObject("value")?.optJSONObject("providers")
-                    loadedProviders = buildList {
-                        configs?.keys()?.forEach { id ->
-                            val p = configs.optJSONObject(id) ?: return@forEach
-                            val modelConfigs = p.optJSONArray("models")
-                            val modelEntries = modelConfigs?.let { models ->
-                                (0 until models.length()).mapNotNull { k ->
-                                    val model = models.optJSONObject(k) ?: return@mapNotNull null
-                                    model.optString("id").takeIf { it.isNotBlank() }
-                                        ?.let { it to model.optString("name") }
-                                }
-                            }.orEmpty()
-                            val modelDetails = modelConfigs?.let { models ->
-                                buildMap {
-                                    for (k in 0 until models.length()) {
-                                        val model = models.optJSONObject(k) ?: continue
-                                        val modelId = model.optString("id").takeIf { it.isNotBlank() } ?: continue
-                                        put(modelId, JSONObject(model.toString()))
-                                    }
-                                }
-                            }.orEmpty()
-                            add(
-                                ProviderInfo(
-                                    id = id,
-                                    displayName = p.optString("displayName").ifBlank { id },
-                                    baseURL = p.optString("baseURL").takeIf { it.isNotBlank() },
-                                    api = p.optString("api").ifBlank { "openai-completions" },
-                                    apiKeyEnv = p.optString("apiKeyEnv").takeIf { it.isNotBlank() },
-                                    models = modelEntries,
-                                    modelDetails = modelDetails,
-                                    headers = p.optJSONObject("headers")?.let { headerObject ->
-                                        buildMap {
-                                            headerObject.keys().forEach { key -> put(key, headerObject.optString(key)) }
-                                        }
-                                    }.orEmpty(),
-                                ),
-                            )
-                        }
-                    }
-                }
-
-                "llm-deepseek" -> {
-                    resolvedOfficialKeyRef = ns.optJSONObject("value")?.optString("apiKeyEnv")
-                        ?.takeIf { it.isNotBlank() } ?: "DEEPSEEK_API_KEY"
-                }
-            }
-        }
-        providers = loadedProviders
-        officialApiKeyRef = resolvedOfficialKeyRef
-        val listProviders = EngineApi.rpc(ready.baseUrl, "llm/listProviders", EngineApi.emptyArgs(), ready.token)
-        if (listProviders is RpcResult.Ok) {
-            builtinProviders = EngineApi.itemsOf(listProviders.value).let { items ->
-                (0 until items.length()).mapNotNull { i ->
-                    val p = items.optJSONObject(i) ?: return@mapNotNull null
-                    p.optString("id").takeIf { it.isNotBlank() }?.let { it to p.optString("name") }
-                }
-            }
-        }
-        val accountState = EngineApi.rpc(ready.baseUrl, "account/getState", EngineApi.emptyArgs(), ready.token)
-        accountView = (accountState as? RpcResult.Ok)?.value as? JSONObject
-        val officialApiEnabled = builtinProviders.any { it.first == "deepseek-official" }
-        val keyRefs = (loadedProviders.mapNotNull { it.apiKeyEnv } +
-            if (officialApiEnabled) listOf(resolvedOfficialKeyRef) else emptyList()).distinct()
-        if (keyRefs.isNotEmpty()) {
-            val refs = JSONArray().apply { keyRefs.forEach { put(it) } }
-            val describeKeys = EngineApi.rpc(
-                ready.baseUrl,
-                "credentials/describe",
-                JSONObject().put("refs", refs),
-                ready.token,
-            )
-            if (describeKeys is RpcResult.Ok) {
-                keyStates = (describeKeys.value as? JSONObject)?.let { obj ->
-                    keyRefs.associateWith { env -> obj.optJSONObject(env)?.optBoolean("configured") ?: false }
-                }.orEmpty()
-            }
-        }
+        modelRepository.reload()
+        error = modelRepository.state.value.error
         busy = false
     }
 
-    LaunchedEffect(accountView?.optJSONObject("attempt")?.optString("phase")) {
-        val phase = accountView?.optJSONObject("attempt")?.optString("phase")
+    LaunchedEffect(modelState.accountView?.optJSONObject("attempt")?.optString("phase")) {
+        val phase = modelState.accountView?.optJSONObject("attempt")?.optString("phase")
         if (phase in setOf("initializing", "waiting-browser", "exchanging", "committing")) {
             while (true) {
                 delay(1_500)
-                val latest = EngineApi.rpc(ready.baseUrl, "account/getState", EngineApi.emptyArgs(), ready.token)
-                val value = (latest as? RpcResult.Ok)?.value as? JSONObject ?: break
-                accountView = value
-                val nextPhase = value.optJSONObject("attempt")?.optString("phase")
+                modelRepository.refreshAccount()
+                val nextPhase = modelRepository.state.value.accountView?.optJSONObject("attempt")?.optString("phase")
                 if (nextPhase !in setOf("initializing", "waiting-browser", "exchanging", "committing")) break
             }
         }
@@ -521,8 +417,8 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit) {
             DeepSeekApiKeyPage(
                 apiKey = officialApiKey,
                 onApiKeyChange = { officialApiKey = it },
-                credentialRef = officialApiKeyRef,
-                configured = keyStates[officialApiKeyRef] == true,
+                credentialRef = modelState.settings.officialApiKeyRef,
+                configured = modelState.keyStates[modelState.settings.officialApiKeyRef] == true,
                 busy = busy,
                 errorMessage = error ?: actionError,
                 modifier = Modifier.fillMaxSize().padding(padding),
@@ -534,7 +430,7 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit) {
                         when (val result = EngineApi.rpc(
                             ready.baseUrl,
                             "credentials/set",
-                            JSONObject().put("ref", officialApiKeyRef).put("value", value),
+                            JSONObject().put("ref", modelState.settings.officialApiKeyRef).put("value", value),
                             ready.token,
                         )) {
                             is RpcResult.Err -> actionError = "${labelSaveApiKey}: ${result.message}"
@@ -554,7 +450,7 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit) {
                         when (val result = EngineApi.rpc(
                             ready.baseUrl,
                             "credentials/unset",
-                            JSONObject().put("ref", officialApiKeyRef),
+                            JSONObject().put("ref", modelState.settings.officialApiKeyRef),
                             ready.token,
                         )) {
                             is RpcResult.Err -> actionError = "${labelClear}: ${result.message}"
@@ -649,9 +545,9 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit) {
                 modelsPage = modelsPage,
                 onModelsPage = { modelsPage = it },
                 errorMessage = error ?: actionError,
-                takenIds = providers.map { it.id },
-                defaultProvider = defaultProvider,
-                defaultModel = defaultModel,
+                takenIds = modelState.settings.providers.map { it.id },
+                defaultProvider = modelState.settings.defaultProvider,
+                defaultModel = modelState.settings.defaultModel,
                 busy = busy,
                 modifier = Modifier.fillMaxSize().padding(padding),
                 onSave = { draft -> persistProvider(draft, editingProvider) },
@@ -684,7 +580,7 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit) {
                     ListItem(
                         headlineContent = {
                             Text(
-                                "${defaultProvider ?: stringResource(com.fioiu8.dshpocket.R.string.models_not_set)} / ${defaultModel ?: stringResource(com.fioiu8.dshpocket.R.string.models_not_set)}",
+                                "${modelState.settings.defaultProvider ?: stringResource(com.fioiu8.dshpocket.R.string.models_not_set)} / ${modelState.settings.defaultModel ?: stringResource(com.fioiu8.dshpocket.R.string.models_not_set)}",
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.SemiBold,
                             )
@@ -717,7 +613,7 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit) {
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = DshSpacing.page),
-                items = providers.map { provider ->
+                items = modelState.settings.providers.map { provider ->
                     {
                         Column(
                             Modifier.padding(DshSpacing.row),
@@ -751,7 +647,7 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit) {
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                             provider.apiKeyEnv?.let { env ->
-                                val configured = keyStates[env] == true
+                                val configured = modelState.keyStates[env] == true
                                 Row(
                                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                                     verticalAlignment = Alignment.CenterVertically,
@@ -794,8 +690,8 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit) {
                 },
             )
 
-            if (builtinProviders.any { it.first == "deepseek-official" }) {
-                val configured = keyStates[officialApiKeyRef] == true
+            if (modelState.builtinProviders.any { it.first == "deepseek-official" }) {
+                val configured = modelState.keyStates[modelState.settings.officialApiKeyRef] == true
                 GroupedList(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = DshSpacing.page),
                     items = listOf {
@@ -817,8 +713,8 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit) {
                 )
             }
 
-            val builtinOnly = builtinProviders.filter { (id, _) ->
-                id != "deepseek-account" && id != "deepseek-official" && providers.none { it.id == id }
+            val builtinOnly = modelState.builtinProviders.filter { (id, _) ->
+                id != "deepseek-account" && id != "deepseek-official" && modelState.settings.providers.none { it.id == id }
             }
             if (builtinOnly.isNotEmpty()) {
                 GroupedList(
@@ -836,9 +732,9 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit) {
                 )
             }
 
-            if (builtinProviders.any { it.first == "deepseek-account" }) {
-                val status = accountView?.optString("status") ?: "signed-out"
-                val phase = accountView?.optJSONObject("attempt")?.optString("phase")
+            if (modelState.builtinProviders.any { it.first == "deepseek-account" }) {
+                val status = modelState.accountView?.optString("status") ?: "signed-out"
+                val phase = modelState.accountView?.optJSONObject("attempt")?.optString("phase")
                 val signInRunning = phase in setOf("initializing", "waiting-browser", "exchanging", "committing")
                 GroupedList(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = DshSpacing.page),
@@ -860,7 +756,7 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit) {
                                     "initializing" -> stringResource(com.fioiu8.dshpocket.R.string.models_login_preparing)
                                     "waiting-browser" -> stringResource(com.fioiu8.dshpocket.R.string.models_login_browser)
                                     "exchanging", "committing" -> stringResource(com.fioiu8.dshpocket.R.string.models_login_confirming)
-                                    "failed" -> stringResource(com.fioiu8.dshpocket.R.string.models_login_failed, accountView?.optJSONObject("attempt")?.optString("errorCode") ?: stringResource(com.fioiu8.dshpocket.R.string.error_unknown))
+                                    "failed" -> stringResource(com.fioiu8.dshpocket.R.string.models_login_failed, modelState.accountView?.optJSONObject("attempt")?.optString("errorCode") ?: stringResource(com.fioiu8.dshpocket.R.string.error_unknown))
                                     "expired" -> stringResource(com.fioiu8.dshpocket.R.string.models_login_expired)
                                     else -> stringResource(com.fioiu8.dshpocket.R.string.models_login_hint)
                                 },
@@ -889,8 +785,9 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit) {
                                             )) {
                                                 is RpcResult.Err -> actionError = "${labelStartLoginFailed}: ${result.message}"
                                                 is RpcResult.Ok -> {
-                                                    accountView = result.value as? JSONObject
-                                                    val authorizeUrl = accountView?.optJSONObject("attempt")?.optString("authorizeUrl")
+                                                    val account = result.value as? JSONObject
+                                                    modelRepository.publishAccount(account)
+                                                    val authorizeUrl = account?.optJSONObject("attempt")?.optString("authorizeUrl")
                                                     if (!authorizeUrl.isNullOrBlank()) {
                                                         runCatching {
                                                             context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(authorizeUrl)))
@@ -906,7 +803,7 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit) {
                                     TextButton(
                                         enabled = !busy,
                                         onClick = {
-                                            val attemptId = accountView?.optJSONObject("attempt")?.optString("id")
+                                            val attemptId = modelState.accountView?.optJSONObject("attempt")?.optString("id")
                                             if (!attemptId.isNullOrBlank()) scope.launch {
                                                 busy = true
                                                 when (val result = EngineApi.rpc(
@@ -916,7 +813,7 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit) {
                                                     ready.token,
                                                 )) {
                                                     is RpcResult.Err -> actionError = "${labelCancelLoginFailed}: ${result.message}"
-                                                    is RpcResult.Ok -> accountView = result.value as? JSONObject
+                                                    is RpcResult.Ok -> modelRepository.publishAccount(result.value)
                                                 }
                                                 busy = false
                                             }
@@ -941,7 +838,7 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit) {
                                                     ready.token,
                                                 )) {
                                                     is RpcResult.Err -> actionError = "${labelSignoutFailed}: ${result.message}"
-                                                    is RpcResult.Ok -> accountView = result.value as? JSONObject
+                                                    is RpcResult.Ok -> modelRepository.publishAccount(result.value)
                                                 }
                                                 busy = false
                                             }
@@ -967,26 +864,26 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit) {
     if (pickingProvider) {
         RadioDialog(
             title = stringResource(com.fioiu8.dshpocket.R.string.models_select_service),
-            options = providers.map { it.id to it.displayName },
-            selected = defaultProvider,
+            options = modelState.settings.providers.map { it.id to it.displayName },
+            selected = modelState.settings.defaultProvider,
             onDismiss = { pickingProvider = false },
             onPick = { picked ->
                 pickingProvider = false
-                val target = providers.firstOrNull { it.id == picked }
+                val target = modelState.settings.providers.firstOrNull { it.id == picked }
                 // 换 provider 时若原默认模型不在新清单里，回落到该清单第一项。
-                val model = target?.models?.firstOrNull { it.first == defaultModel }?.first
+                val model = target?.models?.firstOrNull { it.first == modelState.settings.defaultModel }?.first
                     ?: target?.models?.firstOrNull()?.first
                 if (target != null && model != null) persistDefault(target.id, model)
             },
         )
     }
     if (pickingModel) {
-        val current = providers.firstOrNull { it.id == defaultProvider }
+        val current = modelState.settings.providers.firstOrNull { it.id == modelState.settings.defaultProvider }
         if (current != null && current.models.isNotEmpty()) {
             RadioDialog(
                 title = stringResource(com.fioiu8.dshpocket.R.string.models_select_model),
                 options = current.models.map { it.first to it.second.ifBlank { it.first } },
-                selected = defaultModel,
+                selected = modelState.settings.defaultModel,
                 onDismiss = { pickingModel = false },
                 onPick = { picked ->
                     pickingModel = false
@@ -1042,7 +939,7 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit) {
     }
 
     deleteProvider?.let { provider ->
-        val isDefault = defaultProvider == provider.id
+        val isDefault = modelState.settings.defaultProvider == provider.id
         AlertDialog(
             onDismissRequest = { if (!busy) deleteProvider = null },
             title = { Text(stringResource(com.fioiu8.dshpocket.R.string.models_delete_service_title)) },
