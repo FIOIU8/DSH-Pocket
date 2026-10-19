@@ -28,7 +28,7 @@ jobs:
       RELEASE_VERSION: ${{ inputs.version }}
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Validate release version
         run: |
@@ -42,23 +42,28 @@ jobs:
           fi
 
       - name: Set up Java
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '25'
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: '22'
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.12'
 
+      # Same fix as android-build.yml: setup-android@v3's default package list
+      # contains the removed "tools" package, which fails sdkmanager and kills
+      # the job before the release build starts.
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
+        with:
+          packages: 'platform-tools platforms;android-37.0 build-tools;36.0.0'
 
       - name: Select official DSH release
         id: dsh
