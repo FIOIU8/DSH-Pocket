@@ -53,37 +53,101 @@ locale.
 five screens each ran their own `while (true)` poll loop and each hand-parsed
 JSON. Phase 1 adds the missing layer.
 
-## Phase 1 — state layer (in progress)
+## Phase 1 — state layer (closed 2026-10-19)
 
-Four exit criteria:
+Four exit criteria, **all four met**:
 
-1. **Green.** `testDebugUnitTest` and `lintDebug` both pass; the 43
-   `LocalContext*` / `NonObservableLocale` errors reach zero.
-2. **Behaviour equivalence.** The Session vertical slice keeps the current
-   behaviour of six behaviours — list, search, filter, grouping, archive,
-   restore — one repository test each, each calling the shipped implementation
-   rather than a copy of it.
-3. **Poll convergence.** `SessionsScreen` no longer owns a `while (true)` loop.
-   Verified by re-entering the same screen a second time and observing that
-   `session/list` is not fetched again.
-4. **Boundary written down.** The rules above are stated here and in `AppShell`,
-   so the remaining screens have one pattern to follow rather than four
-   interpretations.
+1. ~~**Green.**~~ ✔ `testDebugUnitTest` 121 tests pass; `lintDebug` 0 errors
+   (down from 43 at the start of the phase; 52 warnings, all pre-existing).
+2. ✔ **Behaviour equivalence.** The Session slice pinned its six behaviours —
+   list, search, filter, grouping, archive, restore — with one test each
+   against shipped code. The Models and Plugins repos pin their own read
+   paths the same way: every retaining-on-failure field (builtin list, key
+   states, plugin rows), the banner lifecycle, the unconditional accountView
+   overwrite, the toggle-then-reload clearing order.
+3. ✔ **Poll convergence.** `SessionsScreen` no longer owns a `while (true)`
+   loop; the AppShell-owned poll starts once (idempotent). Plugins keeps its
+   own 15s in-screen poll and Models keeps a login-phase account poll — both
+   shipped behaviours recorded in the AppShell header rules, not regressions.
+4. ✔ **Boundary written down.** Stated here and in `AppShell`, including the
+   three sanctioned `LocalContext*` resolutions (hoisted `stringResource`,
+   `LocalResources` formatter, `LocalConfiguration` in poll keys).
 
-Sequence: Session repository and screen are done, Home is the second consumer
-and is done, and the 17 errors outside any repository slice are cleared. What
-remains, in order:
+What the phase produced:
 
-1. ~~`ModelsScreen` slice~~ — done. Parser, models and read path in
-   `ui/state/Model*`; screen wired through `collectAsState`; the write paths
-   (persist, delete, key set/unset, DeepSeek login flow) stay in the screen with
-   their own busy/error handling, and the repository gained `refreshAccount`
-   and `publishAccount` for the login poll.
-2. ~~`PluginRepository` slice~~ — done, closed criterion 1. `PluginRow` now
-   holds raw `LocalizedText`; module-name fallback, locale resolution and the
-   localized-title sort moved to render time.
-3. ✔ Criterion 1 closed at 0 errors.
-4. `ExecutionBackend` skeleton, after this phase.
+- `ui/state/` — `SessionRepository`, `ModelParser`/`ModelRepository`,
+  `PluginParser`/`PluginRepository` (`LocalizedText` type introduced here
+  first), each a `get()` singleton created in `AppShell` with a live source
+  lambda plus a `createForTest` seam. Screens are renderers; `ModelsScreen`
+  keeps its write paths (persist, delete, key set/unset, DeepSeek login)
+  locally by design.
+- `ModelsScreen` lost its nine remember'd data variables and its inline
+  JSON walk; the "模型只存原始值" principle is implemented in `PluginRow`
+  first, others to follow when touched.
+
+Sequence history: Session slice, Home as second consumer, 17 errors from the
+label pass, then the two repository slices. One correction along the way is
+worth noting: the first extraction of `ModelRepository` invented semantics the
+shipped screen doesn't have (clear-on-reload, reset-on-failure, a
+`credentialError` pseudo-state, a repository-owned busy flag). Commit
+`6d97005` replaced them with line-for-line replicas and the tests were re-
+pinned to the shipped behaviour — each test name names the line it protects.
+
+## Next plan
+
+### Immediate — `ExecutionBackend` interface + `CompanionStatus` skeleton
+
+Architecture decision D11 wanted this seam from the start; it does not exist
+yet, and `Capabilities.snapshot()` returns `Unavailable` unconditionally, so
+`CompanionStatus.AUTHORIZED`, `RUNNING` and `BRIDGE_CONNECTED` are unreachable.
+
+Doing it after Phase 1 (user-sequenced here rather than "before Phase 3") on
+purpose: the state layer is in place, so the backend skeleton can publish
+status through a repository instead of feeding the screen bare state.
+
+Two design decisions need a call before code is written:
+
+1. **What statuses the state machine carries.** Shipped enum shape is
+   `CompanionStatus.AUTHORIZED / RUNNING / BRIDGE_CONNECTED` (plus `NOT_FOUND`
+   flavour inside the probe path); the skeleton should keep those names, but
+   the machine needs an explicit `Unavailable`/`NotInstalled` state at the
+   front. Proposal: sealed `CompanionStatus` with `NotInstalled`,
+   `Authorized(binaryVersion)`, `Running(binaryVersion, bridgeConnected)`
+   instead of parallel booleans — the unreachable-trio becomes reachable
+   states, transition rules live in one place, snapshots stop hand-gathering.
+2. **Whether the skeleton ships a mock backend.** Two options:
+   - *Keep `snapshot()` returning `Unavailable`* (behaviour baseline
+     preserved; the state machine lands dead until the Termux bridge phase —
+     safer per this project's equivalence discipline, but little testable).
+   - *Ship a `StaticBackend` that reports a fixed state* (the machine and the
+     UI wiring get exercised, but every consumer that reads
+     `CompanionStatus` will see new values — a deliberate behaviour change
+     that needs its own tests and its own gaps entry like the others).
+   Recommendation: **keep `Unavailable`** through the skeleton, and add tests
+   for the state machine's transitions themselves (pure functions can be
+   pinned without changing runtime behaviour). Flip to a live backend in the
+   Termux/Shizuku phase.
+
+While in there: `MainViewModel` / wherever `snapshot()` is called from keeps
+its shape; no screen changes.
+
+### Then the rest of Phase 1+ backlog, in order
+
+1. **Untitled-session resolution** (small, non-behavioural): hoist the
+   hardcoded `"Untitled session"` / `"模型默认"` labels in
+   `NativeChatScreen.parseNativeChatSessions` / `parseNativeModelCatalog`
+   (lines ~874, ~879), and give `formatMessageTime` a locale-safe pattern —
+   recorded below as localisation debt.
+2. **Typed RPC layer** (`engine/rpc/`): the six scattered `parse*` mappers
+   become one typed seam. DSH is pinned at `0.2.0-rc.2` in
+   `tools/collect_runtime.py` and is developer-preview, so field shapes can
+   shift — typed mappers with the existing retention tests are the buffer.
+3. **Schema-driven configuration forms** and **plugin install/remove**
+   (`installBundle` / `removeBundle`, pnpm-network-dependent) — still
+   deliberately deferred, see the Plugins screen note.
+4. **Remote Host mode** (SSH tunnel) — last.
+5. **Archived-set persistence across restarts** — the known gap left as
+   baseline deliberately; fix it as its own change and un-pin nothing.
 
 ### The lint baseline is 43, and the target is 0
 
