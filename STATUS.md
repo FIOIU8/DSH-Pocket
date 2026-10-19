@@ -12,12 +12,13 @@ Last updated: 2026-10-19
 | Task | Result |
 |---|---|
 | `assembleDebug` | pass |
-| `testDebugUnitTest` | pass (65 tests) |
-| `lintDebug` | **43 errors**, all `LocalContext*` in Compose |
+| `testDebugUnitTest` | pass (121 tests) |
+| `lintDebug` | **0 errors**, 52 warnings (W family: `UseKtx`, `AppBundleLocaleChanges`) |
 
-The 43 are not cosmetic. They mark every place that reads a resource or a locale
-through `LocalContext.current` inside a composable, which means the value is
-captured once and never recomposes. The fix is tracked as Phase 1 below.
+Criterion 1 of Phase 1 is closed: the 43 `LocalContext*` / `NonObservableLocale`
+errors from the start of the phase reached 0 through the repository slices
+below, with no Suppress anywhere. The 52 warnings are all pre-existing
+`UseKtx` / `AppBundleLocaleChanges` families, none flagged in this phase.
 
 ## Architecture rules
 
@@ -73,10 +74,15 @@ Sequence: Session repository and screen are done, Home is the second consumer
 and is done, and the 17 errors outside any repository slice are cleared. What
 remains, in order:
 
-1. **`ModelsScreen` slice** — 23 errors, cleared as a side effect of its own
-   repository rather than as a separate lint pass.
-2. **`PluginRepository` slice** — 2 errors, plus install/remove still deferred.
-3. Close criterion 1 at 0 errors.
+1. ~~`ModelsScreen` slice~~ — done. Parser, models and read path in
+   `ui/state/Model*`; screen wired through `collectAsState`; the write paths
+   (persist, delete, key set/unset, DeepSeek login flow) stay in the screen with
+   their own busy/error handling, and the repository gained `refreshAccount`
+   and `publishAccount` for the login poll.
+2. ~~`PluginRepository` slice~~ — done, closed criterion 1. `PluginRow` now
+   holds raw `LocalizedText`; module-name fallback, locale resolution and the
+   localized-title sort moved to render time.
+3. ✔ Criterion 1 closed at 0 errors.
 4. `ExecutionBackend` skeleton, after this phase.
 
 ### The lint baseline is 43, and the target is 0
@@ -91,8 +97,18 @@ real: each read a resource, a locale or a configuration through
 `LocalContext.current` inside a composable, so the value was captured once and
 the composable did not recompose when it should.
 
-Currently **25**, all of them in screens that have not had their repository
-slice yet: ModelsScreen (23) and PluginsScreen (2).
+**Target reached: 0 errors.** The three resolution patterns the fixes produced,
+worth remembering:
+
+- Finished strings usable at composition time: `stringResource(...)`, hoisted
+  and captured.
+- Strings that need engine-supplied format arguments only known inside a
+  lambda: a formatter built on `LocalResources.current`, which itself
+  recomposes on configuration change (`context.resources` reached through
+  `LocalContext.current` does not, and is still flagged).
+- Locale/localeTag values: `LocalConfiguration.current.locales[0]` at
+  composition scope, included in the key of anything polling with it so the
+  loop restarts on a locale change instead of reading a stale context.
 
 ### Localisation debt the lint checks do not catch
 
@@ -138,6 +154,12 @@ this gap would change behaviour and remove the baseline the six equivalence
 tests are measured against. Fix it in its own change, once the new tests can hold
 the fixed behaviour.
 
+Same retention class, replicated rather than fixed, in the other two
+repositories: a failed `llm/listProviders` keeps the previous builtin list (and
+the official-credential check runs against it), a failed
+`credentials/describe` keeps the previous key states, and a failed plugin list
+keeps the previous rows. Each named test pins it.
+
 ### A nested managed marker leaks text in `AGENTS.md`
 
 `AgentBriefing.mergeManagedInstructions` pairs from the *inner* start marker when
@@ -180,8 +202,13 @@ file, read the bytes, strip `U+FEFF`, and write back through
 card and the session screen share one source of truth. A process-wide cache cannot be
 reset from a test, so the class exposes a second constructor for tests.
 
-The clean fix is to hold the cache in a container and inject it, which would delete this
-method. That is not worth a DI framework in a single-module app, so the seam stays and
+`ModelRepository` and `PluginRepository` take the same shape (`get()` singleton in
+AppShell + `createForTest()` seam), because their screens have the analogous coupled
+concerns — retained rows across re-entry, retained key states and builtin list across
+failed reloads.
+
+The clean fix is to hold the cache in a container and inject it, which would delete these
+methods. That is not worth a DI framework in a single-module app, so the seam stays and
 this note records why it exists.
 
 
