@@ -72,33 +72,15 @@ import com.fioiu8.dshpocket.ui.theme.dshControl
  * `credentials/describe|set|unset` 管理 API key（值只写不读）。
  * DeepSeek Account 使用引擎提供的网页登录授权接口，不写入普通 API Key 凭据。
  */
-private data class ProviderInfo(
-    val id: String,
-    val displayName: String,
-    val baseURL: String?,
-    val api: String,
-    val apiKeyEnv: String?,
-    val models: List<Pair<String, String>>,
-    val modelDetails: Map<String, JSONObject>,
-    val headers: Map<String, String>,
-)
-
-private data class ProviderDraft(
-    val id: String,
-    val displayName: String,
-    val baseURL: String,
-    val api: String,
-    val apiKey: String,
-    val models: String,
-    val headers: String,
-    val modelDetails: Map<String, JSONObject>,
-)
-
-private val providerProtocols = listOf(
-    "openai-completions" to "OpenAI Chat Completions",
-    "openai-responses" to "OpenAI Responses",
-    "anthropic-messages" to "Anthropic Messages",
-)
+import com.fioiu8.dshpocket.ui.state.PROVIDER_PROTOCOLS as providerProtocols
+import com.fioiu8.dshpocket.ui.state.ProviderDraft
+import com.fioiu8.dshpocket.ui.state.ProviderInfo
+import com.fioiu8.dshpocket.ui.state.encodeProviderModels
+import com.fioiu8.dshpocket.ui.state.isHttpEndpoint
+import com.fioiu8.dshpocket.ui.state.isValidProviderId
+import com.fioiu8.dshpocket.ui.state.parseProviderHeaders
+import com.fioiu8.dshpocket.ui.state.parseProviderModels
+import com.fioiu8.dshpocket.ui.state.providerCredentialRef
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -1361,39 +1343,6 @@ private fun ProviderEditorPage(
         )
     }
 }
-
-internal fun parseProviderModels(value: String): List<Pair<String, String>>? {
-    val entries = value.lineSequence().map { it.trim() }.filter { it.isNotEmpty() }.map { line ->
-        val parts = line.split('|', limit = 2)
-        parts[0].trim() to parts.getOrNull(1).orEmpty().trim()
-    }.toList()
-    if (entries.any { it.first.isBlank() } || entries.map { it.first }.distinct().size != entries.size) return null
-    return entries
-}
-
-private fun encodeProviderModels(models: List<Pair<String, String>>): String =
-    models.joinToString("\n") { (id, name) -> if (name.isBlank()) id else "$id|$name" }.trimEnd()
-
-private fun parseProviderHeaders(value: String): Map<String, String>? {
-    val entries = mutableListOf<Pair<String, String>>()
-    for (line in value.lineSequence().map { it.trim() }.filter { it.isNotEmpty() }) {
-        val separator = line.indexOf(':')
-        if (separator <= 0) return null
-        val name = line.substring(0, separator).trim()
-        val content = line.substring(separator + 1).trim()
-        if (!name.matches(Regex("^[!#$%&'*+.^_`|~0-9A-Za-z-]+$")) || content.isBlank()) return null
-        entries += name to content
-    }
-    if (entries.map { it.first.lowercase(Locale.ROOT) }.distinct().size != entries.size) return null
-    return entries.toMap()
-}
-
-private fun isHttpEndpoint(value: String): Boolean = runCatching {
-    val endpoint = java.net.URI(value.trim())
-    (endpoint.scheme == "https" || endpoint.scheme == "http") && !endpoint.host.isNullOrBlank()
-}.getOrDefault(false)
-
-private fun providerCredentialRef(id: String): String = "${id.uppercase(Locale.ROOT).replace(Regex("[^A-Z0-9]+"), "_")}_API_KEY"
 
 @Composable
 private fun RadioDialog(
