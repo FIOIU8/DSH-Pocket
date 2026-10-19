@@ -67,7 +67,9 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import com.fioiu8.dshpocket.ui.state.EngineModelSource
 import com.fioiu8.dshpocket.ui.state.EngineSessionSource
+import com.fioiu8.dshpocket.ui.state.ModelRepository
 import com.fioiu8.dshpocket.ui.state.SessionRepository
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -201,6 +203,15 @@ fun AppShell(
         SessionRepository.get(controller.applicationScope) {
             val ready = controller.state.value as? EngineState.Ready
             ready?.let { EngineSessionSource(it.baseUrl, it.token) }
+        }
+    }
+
+    // Reads-only repository for the model screen; writes stay in the screen because their
+    // form drafts and busy handling are UI concerns there.
+    val modelRepository = remember {
+        ModelRepository.get {
+            val ready = controller.state.value as? EngineState.Ready
+            ready?.let { EngineModelSource(it.baseUrl, it.token) }
         }
     }
 
@@ -425,7 +436,7 @@ fun AppShell(
 
             Destination.Plugins -> PluginsScreen(state = state, onMenu = openDrawer)
 
-            Destination.Models -> ModelsScreen(state = state, onMenu = openDrawer)
+            Destination.Models -> ModelsScreen(state = state, onMenu = openDrawer, modelRepository = modelRepository)
 
             Destination.Settings -> {
                 val section = navigationTarget.second?.let { SettingsSection.fromKey(it) }

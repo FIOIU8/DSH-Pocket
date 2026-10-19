@@ -139,4 +139,20 @@ class ModelRepository(private val source: () -> ModelSource?) {
             }
         }
     }
+
+    /**
+     * `account/getState` on its own — what the login-poll loop and the login, cancel and
+     * sign-out actions do. The one unconditional overwrite: a failed call nulls the
+     * account view, exactly like the shipped `as?` chain.
+     */
+    suspend fun refreshAccount() {
+        val source = source() ?: return
+        val account = (source.accountState() as? RpcResult.Ok)?.value as? JSONObject
+        _state.update { it.copy(accountView = account) }
+    }
+
+    /** Publishes an account state already in hand (an RPC reply the screen acts on). */
+    fun publishAccount(value: Any?) {
+        _state.update { it.copy(accountView = value as? JSONObject) }
+    }
 }
