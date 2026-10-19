@@ -70,26 +70,42 @@ Four exit criteria:
    interpretations.
 
 Sequence: Session repository and screen are done, Home is the second consumer
-and is done. What remains, in order:
+and is done, and the 17 errors outside any repository slice are cleared. What
+remains, in order:
 
-1. **Clear the 18 errors that belong to no repository slice** — NativeChatScreen
-   (15), AppShell (2), HomeScreen (1). These are plain localisation fixes.
-2. **`ModelsScreen` slice** (23 errors), which clears as a side effect of its
-   own repository rather than as a separate lint pass.
-3. **`PluginRepository` slice** (2 errors, plus install/remove still deferred).
-4. Close criterion 1 at 0 errors.
-5. `ExecutionBackend` skeleton, after this phase.
+1. **`ModelsScreen` slice** — 23 errors, cleared as a side effect of its own
+   repository rather than as a separate lint pass.
+2. **`PluginRepository` slice** — 2 errors, plus install/remove still deferred.
+3. Close criterion 1 at 0 errors.
+4. `ExecutionBackend` skeleton, after this phase.
 
 ### The lint baseline is 43, and the target is 0
 
-`clean lintDebug` reports 43 errors: 39 `LocalContextGetResourceValueCall`,
-2 `LocalContextConfigurationRead` (PluginsScreen), 2 `NonObservableLocale`
-(NativeChatScreen). The target is **0 errors**, not "clear the ones we know about".
+`clean lintDebug` reported 43 errors at the start of Phase 1: 39
+`LocalContextGetResourceValueCall`, 2 `LocalContextConfigurationRead`
+(PluginsScreen), 2 `NonObservableLocale` (NativeChatScreen). The target is
+**0 errors**, not "clear the ones we know about".
 
-**No Suppress is used anywhere for these, and none is warranted.** All 43 are
-real: each one reads a resource, a locale or a configuration through
-`LocalContext.current` inside a composable, so the value is captured once and
-the composable does not recompose when it should.
+**No Suppress is used anywhere for these, and none is warranted.** All were
+real: each read a resource, a locale or a configuration through
+`LocalContext.current` inside a composable, so the value was captured once and
+the composable did not recompose when it should.
+
+Currently **25**, all of them in screens that have not had their repository
+slice yet: ModelsScreen (23) and PluginsScreen (2).
+
+### Localisation debt the lint checks do not catch
+
+Found while fixing the above; none of it is reported by lint.
+
+- `NativeChatScreen.parseNativeChatSessions` defaults an untitled session to the
+  hardcoded English `"Untitled session"`, and `parseNativeModelCatalog` to the
+  hardcoded `"模型默认"`. Both are non-Composable helpers, so a literal is the
+  only thing they can currently do; the fix is to hoist the label the way the
+  composable now hoists its own.
+- `formatMessageTime` builds `SimpleDateFormat("MM月dd日 HH:mm:ss", Locale.getDefault())`
+  — a Chinese date pattern hardcoded in a non-Composable function, and the only
+  one an English user will never see in the right shape.
 
 ### Incremental lint counts are not trustworthy here
 
