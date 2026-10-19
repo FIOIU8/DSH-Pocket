@@ -69,19 +69,45 @@ Four exit criteria:
    so the remaining screens have one pattern to follow rather than four
    interpretations.
 
-Sequence: `SessionRepository` → `SessionViewModel` → `SessionsScreen` → tests →
-lint → `HomeScreen` as the second consumer, which is what actually proves the
-shared data works. The Home slice adds two more checks: with both screens
-composed, `session/list` is still called once, and `HomeScreen` does not gain a
-poll loop of its own.
+Sequence: Session repository and screen are done, Home is the second consumer
+and is done. What remains, in order:
 
-### The lint baseline is 43, measured by a clean run
+1. **Clear the 18 errors that belong to no repository slice** — NativeChatScreen
+   (15), AppShell (2), HomeScreen (1). These are plain localisation fixes.
+2. **`ModelsScreen` slice** (23 errors), which clears as a side effect of its
+   own repository rather than as a separate lint pass.
+3. **`PluginRepository` slice** (2 errors, plus install/remove still deferred).
+4. Close criterion 1 at 0 errors.
+5. `ExecutionBackend` skeleton, after this phase.
+
+### The lint baseline is 43, and the target is 0
 
 `clean lintDebug` reports 43 errors: 39 `LocalContextGetResourceValueCall`,
 2 `LocalContextConfigurationRead` (PluginsScreen), 2 `NonObservableLocale`
-(NativeChatScreen). Both extra kinds sit on pre-existing lines — removing the
-`lifecycle-viewmodel-compose` added in this phase leaves the count unchanged at
-43 — so they were masked rather than introduced by an incremental run.
+(NativeChatScreen). The target is **0 errors**, not "clear the ones we know about".
+
+**No Suppress is used anywhere for these, and none is warranted.** All 43 are
+real: each one reads a resource, a locale or a configuration through
+`LocalContext.current` inside a composable, so the value is captured once and
+the composable does not recompose when it should.
+
+### Incremental lint counts are not trustworthy here
+
+Two of these findings were wrong before they were measured:
+
+- The two `NonObservableLocale` errors on pre-existing `NativeChatScreen` lines
+  were absent from an earlier incremental report. Removing the
+  `lifecycle-viewmodel-compose` added in this phase leaves the count at 43, so
+  they were masked rather than introduced.
+- **Phase 0's `StaticFieldLeak` conclusion needs re-checking under a full run.**
+  The original judgement — that there was no leak, because both call sites
+  already passed an `Application` — was reasoned from the source and then
+  confirmed by the warning disappearing after the type was tightened. That
+  confirmation came from an incremental run. A `clean lintDebug` after the
+  change reported zero `StaticFieldLeak`, so the conclusion holds, but it
+  should have been established this way the first time.
+
+Treat a lint count as real only when it comes from `clean`.
 
 ## Known gaps
 

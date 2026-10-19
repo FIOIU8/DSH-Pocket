@@ -164,13 +164,11 @@ private fun LatestSessionSection(repository: SessionRepository, onOpenChat: () -
                     tint = MaterialTheme.colorScheme.primary,
                 )
                 Column {
-                    // Three distinct states, which is why this is not a plain ?: chain:
-                    // no session at all, a session with no title, and a real title.
                     Text(
-                        text = when {
-                            session == null -> stringResource(com.fioiu8.dshpocket.R.string.home_no_session)
-                            session.title != null -> session.title
-                            else -> stringResource(com.fioiu8.dshpocket.R.string.home_untitled_session)
+                        text = when (latestTitleState(session)) {
+                            LatestTitle.NoSession -> stringResource(com.fioiu8.dshpocket.R.string.home_no_session)
+                            LatestTitle.Untitled -> stringResource(com.fioiu8.dshpocket.R.string.home_untitled_session)
+                            LatestTitle.Titled -> session!!.title!!
                         },
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
@@ -201,7 +199,24 @@ private fun LatestSessionSection(repository: SessionRepository, onOpenChat: () -
     }
 }
 
-private data class LatestSession(val title: String?, val running: Boolean, val turns: Int)
+internal data class LatestSession(val title: String?, val running: Boolean, val turns: Int)
+
+/**
+ * The three states the latest-session card can show.
+ *
+ * They look like two - "has a title or not" - but they are three, and collapsing them
+ * into `session?.title ?: noSession` made an untitled session render as "no session".
+ * Modelled separately so the middle case can be asserted.
+ */
+internal enum class LatestTitle { NoSession, Untitled, Titled }
+
+internal fun latestTitleState(session: LatestSession?): LatestTitle = when {
+    session == null -> LatestTitle.NoSession
+    // isNullOrBlank rather than == null: the parser already normalises blanks away, but
+    // this function should not depend on that having happened upstream.
+    session.title.isNullOrBlank() -> LatestTitle.Untitled
+    else -> LatestTitle.Titled
+}
 
 /** 快捷入口（canvas quick_*）：纵向 ListItem，图标 + chevron。 */
 @Composable
