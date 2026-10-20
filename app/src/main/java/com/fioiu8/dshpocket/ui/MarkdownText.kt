@@ -74,7 +74,9 @@ private fun AnnotatedString.Builder.renderBlocks(parent: Node, color: Color, lin
             is FencedCodeBlock -> appendCode(child.literal, color)
             is IndentedCodeBlock -> appendCode(child.literal, color)
             is BulletList -> renderList(child, color, linkColor, null)
-            is OrderedList -> renderList(child, color, linkColor, child.startNumber)
+            // markerStartNumber replaces the deprecated startNumber (commonmark 0.22+);
+            // it is null when the start marker is unset, so fall back to the old default of 1.
+            is OrderedList -> renderList(child, color, linkColor, child.markerStartNumber ?: 1)
             is BlockQuote -> {
                 pushStyle(SpanStyle(color = color.copy(alpha = 0.82f), fontWeight = FontWeight.Medium))
                 append("│ ")
