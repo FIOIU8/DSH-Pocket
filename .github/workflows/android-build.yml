@@ -13,6 +13,13 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v5
 
+      # actions/checkout preserves the mode recorded in git. gradlew was
+      # committed as 100644, so on the Linux runner it is not executable and
+      # "./gradlew" dies with "Permission denied" (exit 126) before Gradle even
+      # starts. chmod here so the build does not depend on the committed mode.
+      - name: Make gradlew executable
+        run: chmod +x gradlew
+
       - name: Set up Java
         uses: actions/setup-java@v5
         with:
