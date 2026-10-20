@@ -130,6 +130,13 @@ jobs:
             --out .runtime-work/runtime-aarch64.zip
           cp .runtime-work/runtime-aarch64.zip app/src/main/assets/runtime.zip
 
+      # AGP 9 changed android.onlyEnableUnitTestForTheTestedBuildType to
+      # default to true: unit-test components are only created for the tested
+      # build type (debug), so :app:testReleaseUnitTest no longer exists and
+      # requesting it fails with "Task not found". The unit tests are plain
+      # JVM tests that do not exercise build-type-specific behavior, so the
+      # debug component covers them; release-specific validation stays in
+      # lintRelease/assembleRelease below.
       - name: Run tests, lint, and build signed arm64 APK
         env:
           ORG_GRADLE_PROJECT_releaseStoreFile: ${{ github.workspace }}/.keystore/release.jks
@@ -137,7 +144,7 @@ jobs:
           ORG_GRADLE_PROJECT_releaseKeyAlias: ${{ secrets.ANDROID_KEY_ALIAS }}
           ORG_GRADLE_PROJECT_releaseKeyPassword: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: >-
-          ./gradlew --no-daemon testReleaseUnitTest lintRelease assembleRelease
+          ./gradlew --no-daemon testDebugUnitTest lintRelease assembleRelease
           -PappVersionCode=${GITHUB_RUN_NUMBER}
           -PappVersionName=${RELEASE_VERSION#v}
           -PruntimeArch=aarch64
@@ -149,8 +156,8 @@ jobs:
         with:
           name: test-results-release-${{ github.run_number }}
           path: |
-            app/build/test-results/testReleaseUnitTest/*.xml
-            app/build/reports/tests/testReleaseUnitTest/
+            app/build/test-results/testDebugUnitTest/*.xml
+            app/build/reports/tests/testDebugUnitTest/
           if-no-files-found: warn
 
       # Surfaces Android lint findings in the repository Security tab.
