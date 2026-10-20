@@ -2,9 +2,23 @@ name: Android arm64 build
 
 on:
   push:
+    branches: [master]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'screenshots/**'
+      - 'LICENSE'
+  workflow_dispatch:
 
 permissions:
   contents: read
+  # Needed by the lint SARIF upload step below.
+  security-events: write
+
+# Cancel superseded runs so rapid pushes do not queue parallel builds.
+concurrency:
+  group: android-build-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -91,6 +105,27 @@ jobs:
           -PappVersionCode=${GITHUB_RUN_NUMBER}
           -PappVersionName=0.0.${GITHUB_RUN_NUMBER}-ci
           -PruntimeArch=aarch64
+
+      # Kept even when the build step fails so failures come with test XML.
+      - name: Upload unit test results
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: test-results-debug-${{ github.run_number }}
+          path: |
+            app/build/test-results/testDebugUnitTest/*.xml
+            app/build/reports/tests/testDebugUnitTest/
+          if-no-files-found: warn
+
+      # Surfaces Android lint findings in the repository Security tab.
+      # continue-on-error because SARIF upload needs GitHub Advanced Security
+      # on private repositories; without it this step warns instead of failing.
+      - name: Upload lint SARIF to code scanning
+        if: always() && hashFiles('app/build/reports/lint-results-debug.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v3
+        continue-on-error: true
+        with:
+          sarif_file: app/build/reports/lint-results-debug.sarif
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v6

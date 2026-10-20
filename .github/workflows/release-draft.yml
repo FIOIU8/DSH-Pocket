@@ -16,6 +16,8 @@ on:
 
 permissions:
   contents: write
+  # Needed by the lint SARIF upload step below.
+  security-events: write
 
 concurrency:
   group: android-release-${{ inputs.version }}
@@ -139,6 +141,27 @@ jobs:
           -PappVersionCode=${GITHUB_RUN_NUMBER}
           -PappVersionName=${RELEASE_VERSION#v}
           -PruntimeArch=aarch64
+
+      # Kept even when the build step fails so failures come with test XML.
+      - name: Upload unit test results
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: test-results-release-${{ github.run_number }}
+          path: |
+            app/build/test-results/testReleaseUnitTest/*.xml
+            app/build/reports/tests/testReleaseUnitTest/
+          if-no-files-found: warn
+
+      # Surfaces Android lint findings in the repository Security tab.
+      # continue-on-error because SARIF upload needs GitHub Advanced Security
+      # on private repositories; without it this step warns instead of failing.
+      - name: Upload lint SARIF to code scanning
+        if: always() && hashFiles('app/build/reports/lint-results-release.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v3
+        continue-on-error: true
+        with:
+          sarif_file: app/build/reports/lint-results-release.sarif
 
       - name: Create draft release with generated notes
         env:
