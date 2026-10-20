@@ -47,11 +47,24 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x gradlew
 
+      # The configuration cache lives in the project's .gradle directory, which
+      # actions/checkout wipes on every run. Restoring it lets Gradle reuse the
+      # configuration phase instead of recalculating the task graph.
+      - name: Cache Gradle configuration cache
+        uses: actions/cache@v4
+        with:
+          path: .gradle/configuration-cache
+          key: ${{ runner.os }}-gradle-config-${{ hashFiles('gradle/wrapper/gradle-wrapper.properties', 'gradle.properties', 'build.gradle.kts', 'settings.gradle.kts', 'app/build.gradle.kts', 'gradle/libs.versions.toml') }}
+
+      # cache: gradle persists the wrapper distribution and the dependency
+      # cache under ~/.gradle between runs. Without it every run re-downloads
+      # gradle-9.6.0-bin.zip (~130MB) and re-resolves all dependencies.
       - name: Set up Java
         uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '25'
+          cache: gradle
 
       - name: Set up Node.js
         uses: actions/setup-node@v5
