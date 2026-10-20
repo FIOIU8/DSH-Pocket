@@ -27,3 +27,9 @@ __pycache__/
 # Local debug signing key: AGP's public debug credentials, kept inside the project
 # because the build sandbox cannot write ~/.android.
 /.keystore/
+# Signing keystores must never be committed; the release key is injected via
+# repository secrets in CI. A local release-keystore.jks was found untracked in
+# the repo root on 2026-10-20 - *.jks covers it and any future key file.
+*.jks
+# WorkBuddy agent workspace (memory logs, task state) - local only.
+/.workbuddy/
