@@ -73,10 +73,13 @@ import com.fioiu8.dshpocket.ui.theme.dshSpring
 import com.fioiu8.dshpocket.ui.theme.dshControl
 import com.fioiu8.dshpocket.ui.theme.systemAnimationsEnabled
 
+// @param: keeps the annotations on the constructor parameters only. Without the
+// explicit target, Kotlin 2.2 warns (KT-73255) that a future release will also
+// apply them to the backing fields.
 enum class SettingsSection(
     val key: String,
-    @androidx.annotation.StringRes val labelRes: Int,
-    @androidx.annotation.StringRes val supportingRes: Int,
+    @param:androidx.annotation.StringRes val labelRes: Int,
+    @param:androidx.annotation.StringRes val supportingRes: Int,
     val icon: ImageVector,
 ) {
     Engine("engine", com.fioiu8.dshpocket.R.string.settings_engine, com.fioiu8.dshpocket.R.string.settings_engine_supporting, Icons.Filled.Memory),

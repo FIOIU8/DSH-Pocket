@@ -139,7 +139,10 @@ import kotlinx.coroutines.withContext
 /**
  * 导航目标（设计稿抽屉：m3e-canvas.json 的 drawer_* 六项）。
  */
-enum class Destination(@StringRes val labelRes: Int, val icon: ImageVector) {
+// @param: keeps the annotation on the constructor parameter only. Without the
+// explicit target, Kotlin 2.2 warns (KT-73255) that a future release will also
+// apply it to the backing field.
+enum class Destination(@param:StringRes val labelRes: Int, val icon: ImageVector) {
     Home(com.fioiu8.dshpocket.R.string.nav_home, Icons.Filled.Home),
     Chat(com.fioiu8.dshpocket.R.string.nav_chat, Icons.Filled.Forum),
     Sessions(com.fioiu8.dshpocket.R.string.nav_sessions, Icons.Filled.Folder),
