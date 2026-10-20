@@ -41,6 +41,12 @@ jobs:
             exit 1
           fi
 
+      # gradlew is committed without the execute bit (mode 100644 in git), so
+      # checkout on ubuntu-latest produces a non-executable file and
+      # "./gradlew" fails with "Permission denied" (exit 126). chmod here.
+      - name: Make gradlew executable
+        run: chmod +x gradlew
+
       - name: Set up Java
         uses: actions/setup-java@v5
         with:
