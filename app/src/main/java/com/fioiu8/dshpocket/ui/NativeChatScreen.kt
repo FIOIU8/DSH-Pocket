@@ -1,5 +1,6 @@
 package com.fioiu8.dshpocket.ui
 
+import android.content.ClipData
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -29,9 +30,9 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.Chat
+import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.AlertDialog
@@ -60,9 +61,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.ClipEntry
+import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -342,7 +343,7 @@ fun NativeChatScreen(
                         Icon(Icons.Filled.Tune, contentDescription = stringResource(com.fioiu8.dshpocket.R.string.native_select_model_effort), modifier = Modifier.size(DshSpacing.icon))
                     }
                     IconButton(onClick = { showSessions = true }, modifier = Modifier.size(DshSpacing.touchTarget)) {
-                        Icon(Icons.Filled.Chat, contentDescription = stringResource(com.fioiu8.dshpocket.R.string.native_select_session), modifier = Modifier.size(DshSpacing.icon))
+                        Icon(Icons.AutoMirrored.Filled.Chat, contentDescription = stringResource(com.fioiu8.dshpocket.R.string.native_select_session), modifier = Modifier.size(DshSpacing.icon))
                     }
                     IconButton(
                         onClick = { sessionId = null; messages = emptyList(); error = null },
@@ -415,7 +416,7 @@ fun NativeChatScreen(
                                             {
                                                 val id = sessionId
                                                 val engine = ready
-                                                if (id != null && engine != null && !sending) {
+                                                if (id != null && !sending) {
                                                     scope.launch {
                                                         sending = true
                                                         error = null
@@ -473,11 +474,12 @@ fun NativeChatScreen(
                         onValueChange = { draft = it },
                         sending = sending,
                         running = running,
-                        enabled = ready != null,
+                        // ready is smart-cast non-null inside this branch.
+                        enabled = true,
                         onCancel = {
                             val id = sessionId
                             val engine = ready
-                            if (id != null && engine != null) {
+                            if (id != null) {
                                 scope.launch {
                                     val result = chatRpc(
                                         engine.baseUrl,
@@ -494,7 +496,7 @@ fun NativeChatScreen(
                         onSend = {
                             val text = draft.trim()
                             val engine = ready
-                            if (text.isNotEmpty() && engine != null && !sending) {
+                            if (text.isNotEmpty() && !sending) {
                                 draft = ""
                                 sending = true
                                 error = null
@@ -664,7 +666,8 @@ private fun NativeMessageBubble(
     onAssist: (() -> Unit)?,
 ) {
     val fromUser = message.role == "user"
-    val clipboard = LocalClipboardManager.current
+    val clipboard = LocalClipboard.current
+    val scope = rememberCoroutineScope()
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = if (fromUser) Arrangement.End else Arrangement.Start,
@@ -716,7 +719,11 @@ private fun NativeMessageBubble(
                 }
             }
             MessageMetadata(message, preferences, onAssist) {
-                clipboard.setText(AnnotatedString(message.text))
+                scope.launch {
+                    clipboard.setClipEntry(
+                        ClipEntry(ClipData.newPlainText("message", message.text)),
+                    )
+                }
             }
         }
     }
@@ -787,7 +794,8 @@ private fun ChatComposer(
     onCancel: () -> Unit,
     onSend: () -> Unit,
 ) {
-    val clipboard = LocalClipboardManager.current
+    val clipboard = LocalClipboard.current
+    val scope = rememberCoroutineScope()
     var showMore by remember { mutableStateOf(false) }
     Column {
         if (suggestions.isNotEmpty()) {
@@ -852,7 +860,12 @@ private fun ChatComposer(
                             DropdownMenuItem(
                                 text = { Text(stringResource(com.fioiu8.dshpocket.R.string.paste_clipboard)) },
                                 onClick = {
-                                    clipboard.getText()?.text?.let { onValueChange(value + it) }
+                                    scope.launch {
+                                        val pasted = clipboard.getClipEntry()?.clipData
+                                            ?.takeIf { it.itemCount > 0 }
+                                            ?.getItemAt(0)?.text
+                                        if (pasted != null) onValueChange(value + pasted)
+                                    }
                                     showMore = false
                                 },
                             )
@@ -872,7 +885,7 @@ private fun ChatComposer(
                             enabled = enabled && value.isNotBlank() && !sending,
                             modifier = Modifier.size(48.dp),
                         ) {
-                            Icon(Icons.Filled.Send, contentDescription = stringResource(com.fioiu8.dshpocket.R.string.send))
+                            Icon(Icons.AutoMirrored.Filled.Send, contentDescription = stringResource(com.fioiu8.dshpocket.R.string.send))
                         }
                     }
                 }
