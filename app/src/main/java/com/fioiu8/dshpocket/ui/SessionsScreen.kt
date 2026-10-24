@@ -41,6 +41,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -62,6 +63,7 @@ import com.fioiu8.dshpocket.ui.state.SessionRepository
 import com.fioiu8.dshpocket.ui.state.SessionRow
 import com.fioiu8.dshpocket.ui.state.SessionViewModel
 import com.fioiu8.dshpocket.ui.state.SessionViewModelFactory
+import kotlinx.coroutines.delay
 import java.util.concurrent.TimeUnit
 import com.fioiu8.dshpocket.ui.theme.DshSpacing
 
@@ -89,15 +91,12 @@ private val SessionFilter.labelRes: Int
 fun SessionsScreen(
     state: EngineState,
     onMenu: () -> Unit,
-    onOpenChat: () -> Unit,
+    onOpenChat: (String) -> Unit,
     repository: SessionRepository,
 ) {
-    // Read through a lambda so the ViewModel sees the current engine state rather than the
-    // value captured when it was constructed.
-    val engineState: () -> EngineState = { state }
     val sessionViewModel: SessionViewModel = viewModel(
         key = "sessions",
-        factory = SessionViewModelFactory(repository, engineState),
+        factory = SessionViewModelFactory(repository),
     )
     val ui by sessionViewModel.state.collectAsState()
 
@@ -106,10 +105,22 @@ fun SessionsScreen(
     var query by rememberSaveable { mutableStateOf("") }
     var filterName by rememberSaveable { mutableStateOf(SessionFilter.All.name) }
     var pendingArchiveId by rememberSaveable { mutableStateOf<String?>(null) }
-    val filter = SessionFilter.valueOf(filterName)
+    // Renamed or reordered enum entries in an older installed build must not crash here.
+    val filter = runCatching { SessionFilter.valueOf(filterName) }.getOrDefault(SessionFilter.All)
 
     // Polling is owned by AppShell so there is exactly one loop for the app; the
     // repository's startPolling is idempotent either way.
+
+    // Minute heartbeat so relative timestamps ("3 minutes ago") keep aging without
+    // waiting for an unrelated recomposition.
+    var minuteTick by remember { mutableIntStateOf(0) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(60_000)
+            minuteTick++
+        }
+    }
+    val now = remember(minuteTick) { System.currentTimeMillis() }
 
     val pendingArchive = (ui.load as? SessionLoadState.Ready)
         ?.rows?.firstOrNull { it.id == pendingArchiveId }
@@ -172,11 +183,17 @@ fun SessionsScreen(
             }
 
             when (val load = ui.load) {
-                is SessionLoadState.Failed -> CenteredMessage(
-                    stringResource(com.fioiu8.dshpocket.R.string.sessions_load_failed),
-                    "${load.message}\n${stringResource(com.fioiu8.dshpocket.R.string.sessions_refresh_hint)}",
-                    busy = false,
-                )
+                is SessionLoadState.Failed -> PullToRefreshBox(
+                    isRefreshing = ui.refreshing,
+                    onRefresh = { sessionViewModel.refreshUserInitiated() },
+                    modifier = Modifier.fillMaxSize(),
+                ) {
+                    CenteredMessage(
+                        stringResource(com.fioiu8.dshpocket.R.string.sessions_load_failed),
+                        "${load.message}\n${stringResource(com.fioiu8.dshpocket.R.string.sessions_refresh_hint)}",
+                        busy = false,
+                    )
+                }
 
                 SessionLoadState.Loading -> if (state !is EngineState.Ready) {
                     CenteredMessage(
@@ -192,14 +209,24 @@ fun SessionsScreen(
                     val untitled = stringResource(com.fioiu8.dshpocket.R.string.home_untitled_session)
                     val defaultWorkspace = stringResource(com.fioiu8.dshpocket.R.string.sessions_default_workspace)
                     val filtered = SessionQuery.visible(load.rows, ui.archivedIds, filter, query)
-                    if (filtered.isEmpty()) {
-                        CenteredMessage(stringResource(com.fioiu8.dshpocket.R.string.sessions_no_match), "", busy = false)
-                    } else {
-                        PullToRefreshBox(
-                            isRefreshing = ui.refreshing,
-                            onRefresh = { sessionViewModel.refreshUserInitiated() },
-                            modifier = Modifier.fillMaxSize(),
-                        ) {
+                    PullToRefreshBox(
+                        isRefreshing = ui.refreshing,
+                        onRefresh = { sessionViewModel.refreshUserInitiated() },
+                        modifier = Modifier.fillMaxSize(),
+                    ) {
+                        if (filtered.isEmpty()) {
+                            // An empty engine list and an empty search result are different
+                            // stories; both stay pull-to-refreshable here.
+                            if (load.rows.isEmpty()) {
+                                CenteredMessage(
+                                    title = stringResource(com.fioiu8.dshpocket.R.string.sessions_empty),
+                                    body = stringResource(com.fioiu8.dshpocket.R.string.sessions_empty_hint),
+                                    busy = false,
+                                )
+                            } else {
+                                CenteredMessage(stringResource(com.fioiu8.dshpocket.R.string.sessions_no_match), "", busy = false)
+                            }
+                        } else {
                             LazyColumn(Modifier.fillMaxSize()) {
                                 SessionQuery.byWorkspace(filtered, defaultWorkspace)
                                     .forEach { (workspace, items) ->
@@ -223,12 +250,14 @@ fun SessionsScreen(
                                                             untitled = untitled,
                                                             archived = SessionQuery.isArchived(row, ui.archivedIds),
                                                             restoring = ui.restoringId == row.id,
-                                                            onOpen = onOpenChat,
+                                                            now = now,
+                                                            onOpen = { onOpenChat(row.id) },
                                                             onArchive = { pendingArchiveId = row.id },
                                                             onUnarchive = { sessionViewModel.unarchive(row.id) },
                                                         )
                                                     }
                                                 },
+                                                keys = items.map { it.id },
                                             )
                                         }
                                     }
@@ -253,7 +282,7 @@ fun SessionsScreen(
                 }) { Text(if (ui.archiving) stringResource(com.fioiu8.dshpocket.R.string.sessions_archiving) else stringResource(com.fioiu8.dshpocket.R.string.sessions_archive)) }
             },
             dismissButton = {
-                TextButton(onClick = { pendingArchiveId = null }) { Text(stringResource(com.fioiu8.dshpocket.R.string.cancel)) }
+                TextButton(enabled = !ui.archiving, onClick = { pendingArchiveId = null }) { Text(stringResource(com.fioiu8.dshpocket.R.string.cancel)) }
             },
         )
     }
@@ -265,6 +294,7 @@ private fun SessionRowItem(
     untitled: String,
     archived: Boolean,
     restoring: Boolean,
+    now: Long,
     onOpen: () -> Unit,
     onArchive: () -> Unit,
     onUnarchive: () -> Unit,
@@ -304,7 +334,7 @@ private fun SessionRowItem(
                 listOfNotNull(
                     statusLabel,
                     stringResource(com.fioiu8.dshpocket.R.string.sessions_steps, row.steps),
-                    relativeTime(row.updatedAt),
+                    relativeTime(row.updatedAt, now),
                 ).joinToString(" · "),
                 style = MaterialTheme.typography.bodySmall,
                 color = colors.onSurfaceVariant,
@@ -360,9 +390,9 @@ private data class Quad(
 )
 
 @Composable
-private fun relativeTime(epochMillis: Long): String {
+private fun relativeTime(epochMillis: Long, now: Long): String {
     if (epochMillis <= 0) return ""
-    val diff = System.currentTimeMillis() - epochMillis
+    val diff = now - epochMillis
     val minutes = TimeUnit.MILLISECONDS.toMinutes(diff)
     return when {
         minutes < 1 -> stringResource(com.fioiu8.dshpocket.R.string.sessions_just_now)

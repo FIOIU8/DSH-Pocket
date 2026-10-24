@@ -162,9 +162,11 @@
     <string name="native_create_session_failed">Failed to create session</string>
     <string name="native_switch_model_failed">Failed to switch model</string>
     <string name="native_engine_unavailable">Cannot connect to local engine</string>
-    <string name="native_assist_failed">Assist reply failed</string>
+    <string name="native_assist_prompt">Building on the previous reply and the current context, continue with helpful new information and avoid repeating what was already said.</string>
     <string name="native_stop_failed">Stop failed</string>
     <string name="native_send_failed">Send failed</string>
+    <string name="native_image_attachment">[Image]</string>
+    <string name="native_file_attachment">[File]</string>
     <string name="copy">Copy message</string>
     <string name="stop">Stop generation</string>
     <string name="send">Send</string>
@@ -179,6 +181,7 @@
     <string name="models_new_session_hint">New sessions use this model by default; existing sessions keep their own selection.</string>
     <string name="models_not_set">Not set</string>
     <string name="models_unconfigured">Model list not configured</string>
+    <string name="models_context_window">Context window: %1$d</string>
     <string name="models_set_api_key">Set API key</string>
     <string name="models_change_api_key">Change API key</string>
     <string name="models_api_key_configured">API Key: configured</string>
