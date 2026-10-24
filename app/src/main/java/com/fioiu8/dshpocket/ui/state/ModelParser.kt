@@ -108,9 +108,15 @@ object ModelParser {
 
     const val OFFICIAL_PROVIDER_ID = "deepseek-official"
 
-    /** Maps a `credentials/describe` reply onto the refs that were asked about. */
-    fun keyStates(reply: Any?, refs: List<String>): Map<String, Boolean> {
-        val obj = reply as? JSONObject ?: return emptyMap()
+    /**
+     * Maps a `credentials/describe` reply onto the refs that were asked about.
+     *
+     * Null when the reply has an unexpected shape, so the caller keeps its previous
+     * states — a malformed *success* reply must not blank every configured slot, which
+     * is the same retention rule the failure paths already follow.
+     */
+    fun keyStates(reply: Any?, refs: List<String>): Map<String, Boolean>? {
+        val obj = reply as? JSONObject ?: return null
         return refs.associateWith { obj.optJSONObject(it)?.optBoolean("configured") ?: false }
     }
 }
