@@ -57,7 +57,7 @@ class SessionsScreenTest {
             .put("data", org.json.JSONObject().put("message", developerMessage))
         val records = JSONArray().put(org.json.JSONObject().put("event", event))
 
-        val message = parseNativeChatMessages(records).single()
+        val message = parseNativeChatMessages(records, "[图片]", "[文件]").single()
         assertEquals("system", message.role)
         assertTrue(message.isSystemPrompt)
     }
@@ -86,7 +86,7 @@ class SessionsScreenTest {
             .put("models", JSONArray().put(model))
         val catalog = org.json.JSONObject().put("groups", JSONArray().put(group))
 
-        val option = parseNativeModelCatalog(catalog).single()
+        val option = parseNativeModelCatalog(catalog, "模型默认").single()
         assertEquals("provider-a", option.providerId)
         assertEquals("model-a", option.modelId)
         assertEquals(listOf("default" to "模型默认", "high" to "High"), option.efforts)
@@ -142,7 +142,7 @@ class SessionsScreenTest {
 
         assertEquals(
             listOf("继续解释细节", "给出一个例子"),
-            latestNativeSuggestions(parseNativeChatMessages(records)),
+            latestNativeSuggestions(parseNativeChatMessages(records, "[图片]", "[文件]")),
         )
     }
 

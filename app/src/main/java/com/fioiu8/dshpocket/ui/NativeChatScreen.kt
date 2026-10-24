@@ -49,6 +49,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableLongStateOf
@@ -56,6 +57,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -71,10 +73,15 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.fioiu8.dshpocket.engine.EngineApi
 import com.fioiu8.dshpocket.engine.EngineApi.RpcResult
 import com.fioiu8.dshpocket.engine.EnginePaths
 import com.fioiu8.dshpocket.engine.EngineState
+import com.fioiu8.dshpocket.ui.state.PromptOutcome
+import com.fioiu8.dshpocket.ui.state.SessionRepository
+import com.fioiu8.dshpocket.ui.state.SessionViewModel
+import com.fioiu8.dshpocket.ui.state.SessionViewModelFactory
 import com.fioiu8.dshpocket.ui.theme.DshSpacing
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -82,7 +89,6 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.collect
 import org.json.JSONArray
 import org.json.JSONObject
-import java.util.UUID
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -144,18 +150,30 @@ private fun defaultNativeChatStyle(dark: Boolean) = NativeChatStyle(
 fun NativeChatScreen(
     state: EngineState,
     onMenu: () -> Unit,
+    repository: SessionRepository,
     preferences: NativeChatPreferences = NativeChatPreferences(),
+    pendingOpenSessionId: String? = null,
+    onPendingSessionConsumed: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val ready = state as? EngineState.Ready
     val darkTheme = isSystemInDarkTheme()
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
+    // The prompt send lives in a ViewModel on purpose: a rotation between tapping send
+    // and delivery must not cancel the request — the screen-scoped coroutine used to die
+    // mid-flight and silently swallow both the message and the cleared draft.
+    val sessionViewModel: SessionViewModel = viewModel(
+        key = "native-chat",
+        factory = SessionViewModelFactory(repository),
+    )
+    val promptInFlight by sessionViewModel.promptInFlight.collectAsState()
+    val promptOutcome by sessionViewModel.promptOutcome.collectAsState()
+    val createdSessionId by sessionViewModel.createdSessionId.collectAsState()
     var sessions by remember { mutableStateOf<List<NativeChatSession>>(emptyList()) }
     var sessionId by rememberSaveable { mutableStateOf<String?>(null) }
     var messages by remember { mutableStateOf<List<NativeChatMessage>>(emptyList()) }
     var draft by rememberSaveable { mutableStateOf("") }
-    var sending by remember { mutableStateOf(false) }
     var running by remember { mutableStateOf(false) }
     var liveAssistantText by remember { mutableStateOf("") }
     var loading by remember { mutableStateOf(false) }
@@ -178,11 +196,14 @@ fun NativeChatScreen(
     // through LocalContext there would not recompose when the language changes.
     val labelSessionLoadFailed = stringResource(com.fioiu8.dshpocket.R.string.native_session_load_failed)
     val labelEffortDefault = stringResource(com.fioiu8.dshpocket.R.string.native_effort_default)
-    val labelAssistFailed = stringResource(com.fioiu8.dshpocket.R.string.native_assist_failed)
+    val labelAssistPrompt = stringResource(com.fioiu8.dshpocket.R.string.native_assist_prompt)
     val labelStopFailed = stringResource(com.fioiu8.dshpocket.R.string.native_stop_failed)
     val labelSendFailed = stringResource(com.fioiu8.dshpocket.R.string.native_send_failed)
     val labelCreateSessionFailed = stringResource(com.fioiu8.dshpocket.R.string.native_create_session_failed)
     val labelSwitchModelFailed = stringResource(com.fioiu8.dshpocket.R.string.native_switch_model_failed)
+    val labelUntitledSession = stringResource(com.fioiu8.dshpocket.R.string.home_untitled_session)
+    val labelImageAttachment = stringResource(com.fioiu8.dshpocket.R.string.native_image_attachment)
+    val labelFileAttachment = stringResource(com.fioiu8.dshpocket.R.string.native_file_attachment)
 
     suspend fun loadSessions(engine: EngineState.Ready) {
         val result = chatRpc(
@@ -192,7 +213,7 @@ fun NativeChatScreen(
             engine.token,
         )
         if (result is RpcResult.Ok) {
-            sessions = parseNativeChatSessions(EngineApi.itemsOf(result.value))
+            sessions = parseNativeChatSessions(EngineApi.itemsOf(result.value), labelUntitledSession)
             if (sessionId == null) sessionId = sessions.firstOrNull()?.id
         }
     }
@@ -237,7 +258,7 @@ fun NativeChatScreen(
                     error = labelSessionLoadFailed + ": message records missing"
                     return
                 }
-                val parsed = parseNativeChatMessages(records)
+                val parsed = parseNativeChatMessages(records, labelImageAttachment, labelFileAttachment)
                 messages = parsed
                 loadedCursor = cursor
                 error = null
@@ -280,11 +301,15 @@ fun NativeChatScreen(
                     refreshMessages(engine, id)
                 }
             }
-            runCatching {
+            try {
                 EngineApi.followSession(engine.baseUrl, id).collect { frame ->
                     when (frame.optString("type")) {
                         "snapshot" -> {
-                            messages = parseNativeChatMessages(frame.optJSONArray("records") ?: JSONArray())
+                            messages = parseNativeChatMessages(
+                                frame.optJSONArray("records") ?: JSONArray(),
+                                labelImageAttachment,
+                                labelFileAttachment,
+                            )
                             loadedCursor = frame.optLong("cursor", -1L)
                             liveAssistantText = assistantStreamSnapshotText(
                                 frame.optJSONObject("assistantStream")?.optJSONObject("activeAttempt")?.optJSONArray("stream"),
@@ -292,7 +317,11 @@ fun NativeChatScreen(
                         }
                         "event" -> {
                             val eventRecord = JSONObject().put("event", frame.optJSONObject("event") ?: JSONObject())
-                            val incoming = parseNativeChatMessages(JSONArray().put(eventRecord))
+                            val incoming = parseNativeChatMessages(
+                                JSONArray().put(eventRecord),
+                                labelImageAttachment,
+                                labelFileAttachment,
+                            )
                             if (incoming.isNotEmpty()) {
                                 if (incoming.any { it.role == "assistant" }) liveAssistantText = ""
                                 messages = (messages + incoming).distinctBy { it.id }
@@ -317,16 +346,78 @@ fun NativeChatScreen(
                         }
                     }
                 }
-            }.onFailure { failure ->
-                if (failure !is kotlinx.coroutines.CancellationException) {
-                    error = "${labelSessionLoadFailed}: ${failure.message.orEmpty()}"
-                }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                error = "${labelSessionLoadFailed}: ${failure.message.orEmpty()}"
             }
         }
     }
 
-    LaunchedEffect(visibleMessages.size, sending) {
-        if (visibleMessages.isNotEmpty()) listState.animateScrollToItem(visibleMessages.lastIndex)
+    // One-shot: the sessions screen asked to open a specific conversation here.
+    LaunchedEffect(pendingOpenSessionId) {
+        val id = pendingOpenSessionId ?: return@LaunchedEffect
+        sessionId = id
+        messages = emptyList()
+        liveAssistantText = ""
+        loading = true
+        error = null
+        onPendingSessionConsumed()
+    }
+
+    // Outcome of a ViewModel-sent prompt: report errors, restore the draft on failure,
+    // and adopt a session the ViewModel had to create.
+    LaunchedEffect(promptOutcome) {
+        when (val outcome = promptOutcome) {
+            is PromptOutcome.Delivered -> {
+                error = null
+                val engine = ready
+                if (engine != null) {
+                    loadSessions(engine)
+                    refreshMessages(engine, outcome.sessionId)
+                }
+            }
+            is PromptOutcome.Failed -> {
+                error = "${labelSendFailed}: ${outcome.message}"
+                if (outcome.restoreDraft && draft.isBlank()) draft = outcome.text
+            }
+            null -> {}
+        }
+        sessionViewModel.consumePromptOutcome()
+    }
+
+    LaunchedEffect(createdSessionId) {
+        createdSessionId?.let { id ->
+            sessionId = id
+            sessionViewModel.consumeCreatedSession()
+        }
+    }
+
+    // Follow the tail only while the user is actually reading it: a manual scroll up must
+    // survive polling updates and stream chunks. Programmatic scrolls land on the last
+    // item, which is what keeps the stickiness true.
+    val stickToBottom = remember { mutableStateOf(true) }
+    LaunchedEffect(listState) {
+        snapshotFlow { listState.isScrollInProgress }.collect { scrolling ->
+            if (!scrolling) return@collect
+            val info = listState.layoutInfo
+            val lastVisible = info.visibleItemsInfo.lastOrNull()?.index ?: -1
+            stickToBottom.value = lastVisible >= info.totalItemsCount - 2
+        }
+    }
+    LaunchedEffect(sessionId) { stickToBottom.value = true }
+
+    LaunchedEffect(visibleMessages.size, promptInFlight) {
+        if (visibleMessages.isNotEmpty() && stickToBottom.value) {
+            listState.animateScrollToItem(visibleMessages.lastIndex)
+        }
+    }
+    // Streaming grows the tail bubble in place; scrolling to the item would keep its top
+    // pinned and leave the newest text below the fold, so pin the list bottom instead.
+    LaunchedEffect(liveAssistantText) {
+        if (liveAssistantText.isNotBlank() && stickToBottom.value && visibleMessages.isNotEmpty()) {
+            listState.scrollToItem(visibleMessages.lastIndex, scrollOffset = 1_000_000)
+        }
     }
 
     Scaffold(
@@ -346,7 +437,7 @@ fun NativeChatScreen(
                         Icon(Icons.AutoMirrored.Filled.Chat, contentDescription = stringResource(com.fioiu8.dshpocket.R.string.native_select_session), modifier = Modifier.size(DshSpacing.icon))
                     }
                     IconButton(
-                        onClick = { sessionId = null; messages = emptyList(); error = null },
+                        onClick = { sessionId = null; messages = emptyList(); liveAssistantText = ""; error = null },
                         modifier = Modifier.size(DshSpacing.touchTarget),
                     ) {
                         Icon(Icons.Filled.Add, contentDescription = stringResource(com.fioiu8.dshpocket.R.string.native_new_chat), modifier = Modifier.size(DshSpacing.icon))
@@ -413,47 +504,26 @@ fun NativeChatScreen(
                                     style = style,
                                     preferences = preferences,
                                     onAssist = if (preferences.showAssistReply && message.role == "assistant") {
-                                            {
-                                                val id = sessionId
-                                                val engine = ready
-                                                if (id != null && !sending) {
-                                                    scope.launch {
-                                                        sending = true
-                                                        error = null
-                                                        val result = chatRpc(
-                                                            engine.baseUrl,
-                                                            "session/prompt",
-                                                            EngineApi.requestArgs(
-                                                                JSONObject()
-                                                                    .put("requestId", UUID.randomUUID().toString())
-                                                                    .put("sessionId", id)
-                                                                    .put("mode", "queue")
-                                                                    .put(
-                                                                        "content",
-                                                                        JSONArray().put(
-                                                                            JSONObject()
-                                                                                .put("type", "text")
-                                                                                .put(
-                                                                                    "text",
-                                                                                    "请基于上一条回答和当前上下文，继续补充有帮助的新信息，避免重复已有内容。",
-                                                                                ),
-                                                                        ),
-                                                                    )
-                                                                    .put("clientTimeZone", validClientTimeZone()),
-                                                            ),
-                                                            engine.token,
-                                                        )
-                                                        if (result is RpcResult.Err) error = "${labelAssistFailed}: ${result.message}"
-                                                        loadSessions(engine)
-                                                        refreshMessages(engine, id)
-                                                        sending = false
-                                                    }
-                                                }
+                                        {
+                                            // Same ViewModel path as the composer so the
+                                            // assist prompt survives a rotation too, and so
+                                            // it follows the app language instead of being
+                                            // hardcoded Chinese.
+                                            if (!promptInFlight && ready != null) {
+                                                error = null
+                                                sessionViewModel.sendPrompt(
+                                                    engine = ready,
+                                                    text = labelAssistPrompt,
+                                                    sessionId = sessionId,
+                                                    workspacePath = EnginePaths.workspace(context).absolutePath,
+                                                    restoreDraft = false,
+                                                )
                                             }
+                                        }
                                     } else null,
                                 )
                             }
-                            if (sending || running) {
+                            if (promptInFlight || running) {
                                 item(key = "thinking") {
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
@@ -472,7 +542,7 @@ fun NativeChatScreen(
                         value = draft,
                         suggestions = suggestions,
                         onValueChange = { draft = it },
-                        sending = sending,
+                        sending = promptInFlight,
                         running = running,
                         // ready is smart-cast non-null inside this branch.
                         enabled = true,
@@ -496,56 +566,15 @@ fun NativeChatScreen(
                         onSend = {
                             val text = draft.trim()
                             val engine = ready
-                            if (text.isNotEmpty() && !sending) {
+                            if (text.isNotEmpty() && !promptInFlight && engine != null) {
                                 draft = ""
-                                sending = true
                                 error = null
-                                scope.launch {
-                                    var targetId = sessionId
-                                    if (targetId == null) {
-                                        val create = chatRpc(
-                                            engine.baseUrl,
-                                            "session/create",
-                                            EngineApi.requestArgs(
-                                                JSONObject().put("cwd", EnginePaths.workspace(context).absolutePath),
-                                            ),
-                                            engine.token,
-                                        )
-                                        targetId = (((create as? RpcResult.Ok)?.value as? JSONObject)
-                                            ?.optString("sessionId"))?.takeIf { it.isNotBlank() }
-                                        if (targetId == null) {
-                                            error = (create as? RpcResult.Err)?.message ?: labelCreateSessionFailed
-                                            draft = text
-                                            sending = false
-                                            return@launch
-                                        }
-                                        sessionId = targetId
-                                    }
-                                    val result = chatRpc(
-                                        engine.baseUrl,
-                                        "session/prompt",
-                                        EngineApi.requestArgs(
-                                            JSONObject()
-                                                .put("requestId", UUID.randomUUID().toString())
-                                                .put("sessionId", targetId)
-                                                .put("mode", "queue")
-                                                .put("content", JSONArray().put(JSONObject().put("type", "text").put("text", text)))
-                                                .put("clientTimeZone", validClientTimeZone()),
-                                        ),
-                                        engine.token,
-                                    )
-                                    when (result) {
-                                        is RpcResult.Ok -> {
-                                            loadSessions(engine)
-                                            refreshMessages(engine, targetId)
-                                        }
-                                        is RpcResult.Err -> {
-                                            error = "${labelSendFailed}: ${result.message}"
-                                            draft = text
-                                        }
-                                    }
-                                    sending = false
-                                }
+                                sessionViewModel.sendPrompt(
+                                    engine = engine,
+                                    text = text,
+                                    sessionId = sessionId,
+                                    workspacePath = EnginePaths.workspace(context).absolutePath,
+                                )
                             }
                         },
                     )
@@ -559,13 +588,14 @@ fun NativeChatScreen(
             onDismissRequest = { showSessions = false },
             title = { Text(stringResource(com.fioiu8.dshpocket.R.string.native_select_session)) },
             text = {
-                Column {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
                     sessions.forEach { session ->
                         TextButton(
                             onClick = {
                                 showSessions = false
                                 sessionId = session.id
                                 messages = emptyList()
+                                liveAssistantText = ""
                                 loading = true
                                 error = null
                             },
@@ -652,12 +682,6 @@ fun NativeChatScreen(
     }
 }
 
-private fun validClientTimeZone(): String {
-    val id = java.util.TimeZone.getDefault().id
-    val isAreaLocation = id.matches(Regex("[A-Za-z_+-]+(/[A-Za-z0-9._+-]+)+"))
-    return if (id == "UTC" || (isAreaLocation && id in java.util.TimeZone.getAvailableIDs())) id else "UTC"
-}
-
 @Composable
 private fun NativeMessageBubble(
     message: NativeChatMessage,
@@ -741,7 +765,7 @@ private fun MessageMetadata(
     // switches the app language, leaving numbers formatted in the old locale.
     val locale = LocalConfiguration.current.locales[0]
     val metadata = buildList {
-        if (preferences.showMessageTime && message.time > 0) add(formatMessageTime(message.time))
+        if (preferences.showMessageTime && message.time > 0) add(formatMessageTime(message.time, locale))
         if (preferences.showTokenUsage) {
             message.inputTokens?.let { add("↑ $it") }
             message.outputTokens?.let { add("↓ $it") }
@@ -778,9 +802,12 @@ private fun MessageMetadata(
     }
 }
 
-private fun formatMessageTime(rawTime: Long): String {
+private fun formatMessageTime(rawTime: Long, locale: Locale): String {
     val millis = if (rawTime in 1..100_000_000_000L) rawTime * 1000 else rawTime
-    return SimpleDateFormat("MM月dd日 HH:mm:ss", Locale.getDefault()).format(Date(millis))
+    // A localized skeleton instead of a hardcoded "MM月dd日" pattern, which leaked Chinese
+    // date glyphs into every other locale.
+    val pattern = android.text.format.DateFormat.getBestDateTimePattern(locale, "MMMd HHmmss")
+    return SimpleDateFormat(pattern, locale).format(Date(millis))
 }
 
 @Composable
@@ -894,17 +921,17 @@ private fun ChatComposer(
     }
 }
 
-internal fun parseNativeChatSessions(items: JSONArray): List<NativeChatSession> = buildList {
+internal fun parseNativeChatSessions(items: JSONArray, untitledTitle: String): List<NativeChatSession> = buildList {
     for (index in 0 until items.length()) {
         val item = items.optJSONObject(index) ?: continue
         if (item.optBoolean("blank")) continue
         val values = item.optJSONObject("projections")?.optJSONObject("values")
-        val title = values?.optString("title")?.takeIf { it.isNotBlank() && it != "null" } ?: "Untitled session"
+        val title = values?.optString("title")?.takeIf { it.isNotBlank() && it != "null" } ?: untitledTitle
         add(NativeChatSession(item.optString("sessionId"), title, item.optBoolean("running")))
     }
 }
 
-internal fun parseNativeModelCatalog(catalog: JSONObject?, defaultEffortLabel: String = "模型默认"): List<NativeModelOption> = buildList {
+internal fun parseNativeModelCatalog(catalog: JSONObject?, defaultEffortLabel: String): List<NativeModelOption> = buildList {
     val groups = catalog?.optJSONArray("groups") ?: return@buildList
     for (groupIndex in 0 until groups.length()) {
         val group = groups.optJSONObject(groupIndex) ?: continue
@@ -951,7 +978,11 @@ internal fun assistantStreamSnapshotText(stream: JSONArray?): String = buildStri
     }
 }
 
-internal fun parseNativeChatMessages(records: JSONArray): List<NativeChatMessage> = buildList {
+internal fun parseNativeChatMessages(
+    records: JSONArray,
+    imagePlaceholder: String,
+    filePlaceholder: String,
+): List<NativeChatMessage> = buildList {
     for (index in 0 until records.length()) {
         val event = records.optJSONObject(index)?.optJSONObject("event") ?: continue
         val type = event.optString("type")
@@ -986,7 +1017,7 @@ internal fun parseNativeChatMessages(records: JSONArray): List<NativeChatMessage
             "assistant/message" -> data.optJSONObject("message")
             else -> null
         } ?: continue
-        val text = contentText(message.optJSONArray("content"))
+        val text = contentText(message.optJSONArray("content"), imagePlaceholder, filePlaceholder)
             .ifBlank { message.optString("text").takeIf { it != "null" }.orEmpty() }
         if (text.isBlank()) continue
         val isSystemPrompt = type == "system/message" || type == "developer/message" || isNativeSystemPrompt(text)
@@ -1072,14 +1103,14 @@ private fun firstDurationMs(values: List<JSONObject?>, vararg keys: String): Lon
     return null
 }
 
-private fun contentText(content: JSONArray?): String = buildList {
+private fun contentText(content: JSONArray?, imagePlaceholder: String, filePlaceholder: String): String = buildList {
     if (content == null) return@buildList
     for (index in 0 until content.length()) {
         val block = content.optJSONObject(index) ?: continue
         when (block.optString("type")) {
             "text" -> block.optString("text").takeIf { it.isNotBlank() }?.let(::add)
-            "image" -> add("[图片]")
-            "file" -> add("[文件]")
+            "image" -> add(imagePlaceholder)
+            "file" -> add(filePlaceholder)
         }
     }
 }.joinToString("\n")

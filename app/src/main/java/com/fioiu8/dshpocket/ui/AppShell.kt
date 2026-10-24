@@ -15,6 +15,7 @@ import androidx.webkit.WebViewFeature
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
@@ -95,6 +96,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.annotation.StringRes
 import androidx.compose.ui.res.stringResource
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.key
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import android.content.Intent
 import com.fioiu8.dshpocket.capability.Capabilities
 import com.fioiu8.dshpocket.capability.CapabilitySnapshot
 import com.fioiu8.dshpocket.engine.EngineController
@@ -204,6 +211,9 @@ fun AppShell(
         mutableStateOf(loadNativeChatPreferences(context))
     }
     var capabilities by remember { mutableStateOf(readCapabilities(context)) }
+    // A session picked on the sessions screen is parked here until the chat screen has
+    // adopted it, so "打开" actually opens that conversation instead of just switching tabs.
+    var pendingOpenSessionId by rememberSaveable { mutableStateOf<String?>(null) }
 
     // Shared per process, so the home card and the session screen read one source of
     // truth and the poll loop runs once instead of once per screen.
@@ -238,9 +248,36 @@ fun AppShell(
     var webLoading by remember { mutableStateOf(false) }
     var webLoadError by remember { mutableStateOf<String?>(null) }
     var blankRetryCount by remember { mutableIntStateOf(0) }
+    // The empty-body check is posted onto the WebView with a delay; remembering the
+    // runnable lets a page start (or disposal) cancel it instead of firing detached.
+    val blankCheck = remember { mutableStateOf<Runnable?>(null) }
 
     val debugBuild = (context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
-    if (debugBuild) WebView.setWebContentsDebuggingEnabled(true)
+    if (debugBuild) {
+        LaunchedEffect(Unit) { WebView.setWebContentsDebuggingEnabled(true) }
+    }
+
+    // Native resources of the WebView are only reclaimed deterministically through
+    // destroy(); without it every Activity recreation (rotation, language switch) pins
+    // the old instance — renderer threads included — until GC feels like it.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            val wv = webView.value ?: return@LifecycleEventObserver
+            when (event) {
+                Lifecycle.Event.ON_PAUSE -> wv.onPause()
+                Lifecycle.Event.ON_RESUME -> wv.onResume()
+                else -> {}
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            blankCheck.value?.let { webView.value?.removeCallbacks(it) }
+            webView.value?.destroy()
+            webView.value = null
+        }
+    }
 
     val openDrawer: () -> Unit = { scope.launch { drawerState.open() } }
     // Resolved in composable scope and captured: stringResource cannot be called from
@@ -254,12 +291,15 @@ fun AppShell(
 
     LaunchedEffect(Unit) { controller.start() }
 
-    // One owner for the session poll, started when the engine first becomes ready.
+    // One owner for the session poll: started when the engine becomes ready, stopped
+    // when it leaves Ready — without the stop branch the loop would keep waking the
+    // process every 15s in the background and after the engine was stopped on purpose.
     // startPolling is idempotent, so a later screen composing alongside this one adds
     // no extra fetches and no second loop.
     LaunchedEffect(controller) {
         controller.state.collect { ready ->
             if (ready is com.fioiu8.dshpocket.engine.EngineState.Ready) sessionRepository.startPolling()
+            else sessionRepository.stopPolling()
         }
     }
 
@@ -267,20 +307,38 @@ fun AppShell(
         settingsSection = null
     }
 
-    // Cheap re-read: returning from the system settings page lands back on a navigation change.
+    // The DSH Web UI is an SPA: once it pushed a sub-page onto the WebView history, the
+    // system back button must walk that history instead of finishing the activity.
+    BackHandler(
+        enabled = destination == Destination.Chat &&
+            chatPresentation == ChatPresentation.Web &&
+            webView.value?.canGoBack() == true,
+    ) {
+        webView.value?.goBack()
+    }
+
+    // Re-read on resume, not only on navigation: returning from the system all-files
+    // access page does not change any navigation state, so a destination-keyed effect
+    // would never fire and the capability cards would stay stale.
     LaunchedEffect(destination) { capabilities = readCapabilities(context) }
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event != Lifecycle.Event.ON_RESUME) return@LifecycleEventObserver
+            val fresh = readCapabilities(context)
+            if (fresh != capabilities) {
+                capabilities = fresh
+                // The agent briefs itself from AGENTS.md, which is only rewritten on
+                // spawn; push the new capabilities so its briefing does not go stale
+                // while the engine keeps running.
+                controller.refreshBriefing(fresh)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     LaunchedEffect(state) {
         if (state !is EngineState.Ready) {
-            webLoaded = false
-            webLoading = false
-            webLoadError = null
-            blankRetryCount = 0
-        }
-    }
-
-    LaunchedEffect(destination) {
-        if (destination != Destination.Chat) {
             webLoaded = false
             webLoading = false
             webLoadError = null
@@ -304,10 +362,18 @@ fun AppShell(
 
     // DSH changes routes in-place. A client-side exception can therefore leave a
     // finished WebView with an empty document without triggering onPageFinished.
-    LaunchedEffect(destination, state, webView.value, webLoaded) {
+    // Only runs while the WebView is the visible chat presentation; in native mode the
+    // detached WebView must not be poked once per second.
+    LaunchedEffect(destination, state, webView.value, webLoaded, chatPresentation) {
         val s = state
         val wv = webView.value
-        if (destination != Destination.Chat || s !is EngineState.Ready || wv == null || !webLoaded) return@LaunchedEffect
+        if (
+            destination != Destination.Chat ||
+            chatPresentation != ChatPresentation.Web ||
+            s !is EngineState.Ready ||
+            wv == null ||
+            !webLoaded
+        ) return@LaunchedEffect
         var retries = 0
         while (isActive) {
             delay(1_000)
@@ -400,7 +466,10 @@ fun AppShell(
                     NativeChatScreen(
                         state = state,
                         onMenu = openDrawer,
+                        repository = sessionRepository,
                         preferences = nativeChatPreferences,
+                        pendingOpenSessionId = pendingOpenSessionId,
+                        onPendingSessionConsumed = { pendingOpenSessionId = null },
                     )
                 } else {
                     ChatScreen(
@@ -410,11 +479,14 @@ fun AppShell(
                         loading = webLoading,
                         loadError = webLoadError,
                         onPageStarted = {
+                            // A new navigation invalidates any pending empty-body check.
+                            blankCheck.value?.let { pending -> webView.value?.removeCallbacks(pending) }
+                            blankCheck.value = null
                             webLoading = true
                             webLoadError = null
                         },
                         onPageFinished = { view ->
-                            view.postDelayed({
+                            val check = Runnable {
                                 view.evaluateJavascript(VIEWPORT_FIX_SCRIPT) { rawHeight ->
                                     val height = rawHeight.trim('"').toFloatOrNull() ?: 0f
                                     if (height < 1f && blankRetryCount < 1) {
@@ -433,7 +505,9 @@ fun AppShell(
                                         webLoadError = null
                                     }
                                 }
-                            }, 350)
+                            }
+                            blankCheck.value = check
+                            view.postDelayed(check, 350)
                         },
                         onPageError = { message ->
                             webLoaded = false
@@ -448,7 +522,10 @@ fun AppShell(
                 state = state,
                 repository = sessionRepository,
                 onMenu = openDrawer,
-                onOpenChat = { destination = Destination.Chat },
+                onOpenChat = { sessionId ->
+                    pendingOpenSessionId = sessionId
+                    destination = Destination.Chat
+                },
             )
 
             Destination.Plugins -> PluginsScreen(state = state, onMenu = openDrawer, pluginRepository = pluginRepository)
@@ -489,7 +566,10 @@ fun AppShell(
                             controller.restart()
                         },
                         onStop = {
-                            controller.stop()
+                            // byUser marks the choice so the next activity recreation
+                            // (which unconditionally calls controller.start()) does not
+                            // quietly undo it.
+                            controller.stop(byUser = true)
                             EngineService.stop(context)
                         },
                             language = language,
@@ -682,13 +762,17 @@ private fun ChatScreen(
                                     }
                                 }
 
-                                override fun shouldOverrideUrlLoading(view: WebView, url: String): Boolean =
-                                    when (Uri.parse(url).host) {
-                                        // The engine's own UI stays inside the app.
-                                        "127.0.0.1", "localhost" -> false
-                                        // Anything else leaves for the system browser.
-                                        else -> true
+                                override fun shouldOverrideUrlLoading(view: WebView, url: String): Boolean {
+                                    val uri = Uri.parse(url)
+                                    // The engine's own UI stays inside the app.
+                                    if (uri.host == "127.0.0.1" || uri.host == "localhost") return false
+                                    // Anything else hands off to the system browser; returning
+                                    // true alone would just make the tap do nothing.
+                                    runCatching {
+                                        view.context.startActivity(Intent(Intent.ACTION_VIEW, uri))
                                     }
+                                    return true
+                                }
                             }
                             webView.value = this
                         }
@@ -876,11 +960,16 @@ fun SectionHeader(text: String) {
     )
 }
 
-/** 分组连续列表容器（m3e 拼接列表）：整组共用一个圆角面，行间自动加细分隔线。 */
+/** 分组连续列表容器（m3e 拼接列表）：整组共用一个圆角面，行间自动加细分隔线。
+ *
+ *  [keys] gives rows a stable identity so per-row `remember` state (an open menu, a
+ *  toggle) follows its row when the list reorders instead of staying with the position.
+ */
 @Composable
 fun GroupedList(
     modifier: Modifier = Modifier,
     items: List<@Composable () -> Unit>,
+    keys: List<Any>? = null,
 ) {
     val shape = RoundedCornerShape(DshShapes.surface)
     val listAnimationDuration = motionDuration(180)
@@ -900,8 +989,12 @@ fun GroupedList(
                     modifier = Modifier.padding(horizontal = DshSpacing.page),
                     color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f),
                 )
+                // MutableTransitionState(false→true) is what makes the entrance play at
+                // all: AnimatedVisibility(visible = true) never leaves its initial state,
+                // so the whole stagger used to be dead code.
+                val entrance = remember { MutableTransitionState(false).apply { targetState = true } }
                 AnimatedVisibility(
-                    visible = true,
+                    visibleState = entrance,
                     enter = fadeIn(
                         animationSpec = tween(
                             durationMillis = listAnimationDuration,
@@ -919,7 +1012,11 @@ fun GroupedList(
                         initialOffsetY = { it / 32 },
                     ),
                 ) {
-                    item()
+                    if (keys != null && index < keys.size) {
+                        key(keys[index]) { item() }
+                    } else {
+                        item()
+                    }
                 }
             }
         }
@@ -964,7 +1061,4 @@ fun KeyValueRow(key: String, value: String) {
         )
     }
 }
-
-@Composable
-fun Divider() = HorizontalDivider(Modifier.padding(vertical = 4.dp))
 
