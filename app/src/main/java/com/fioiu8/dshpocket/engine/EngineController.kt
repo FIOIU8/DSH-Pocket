@@ -28,7 +28,13 @@ import java.util.concurrent.TimeUnit
 
 sealed interface EngineState {
     data object Idle : EngineState
-    data class Busy(val message: String) : EngineState
+
+    /**
+     * Working towards Ready. [fraction] is 0..1 when the phase has measurable progress
+     * (runtime extraction); null means indeterminate — the UI shows a spinner-style
+     * indicator instead of a percentage.
+     */
+    data class Busy(val message: String, val fraction: Float? = null) : EngineState
     data class Ready(
         val baseUrl: String,
         val token: String,
@@ -64,6 +70,12 @@ class EngineController(private val context: Application) {
          * would race it for the port and die with EADDRINUSE.
          */
         private const val STOP_GRACE_SECONDS = 5L
+
+        /**
+         * Share of the bootstrap progress bar taken by runtime extraction; spawning the
+         * engine has no measurable progress, so it fills the rest only when Ready.
+         */
+        private const val EXTRACTION_PROGRESS_WEIGHT = 0.95f
 
         /**
          * One engine per process. An Activity recreation must not spawn a second engine
@@ -180,10 +192,25 @@ class EngineController(private val context: Application) {
         try {
             if (!isCurrent(runId)) return
             if (!RuntimeInstaller.isInstalled(context)) {
-                _state.value = EngineState.Busy("准备运行时…")
-                RuntimeInstaller.install(context) { msg ->
-                    if (isCurrent(runId)) _state.value = EngineState.Busy(msg)
+                var message = "准备运行时…"
+                var fraction = 0f
+                fun publish() {
+                    if (isCurrent(runId)) {
+                        _state.value = EngineState.Busy(message, fraction * EXTRACTION_PROGRESS_WEIGHT)
+                    }
                 }
+                publish()
+                RuntimeInstaller.install(
+                    context,
+                    onProgress = { msg ->
+                        message = msg
+                        publish()
+                    },
+                    onFraction = { value ->
+                        fraction = value
+                        publish()
+                    },
+                )
             }
             if (!isCurrent(runId)) return
             _state.value = EngineState.Busy("启动引擎…")
