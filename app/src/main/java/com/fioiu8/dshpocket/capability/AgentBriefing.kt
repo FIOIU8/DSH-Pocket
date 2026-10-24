@@ -15,7 +15,7 @@ object AgentBriefing {
     private const val POLICY_END_MARKER = "<!-- DSH Pocket managed policy: end -->"
     private val ASSISTANT_POLICY = listOf(
         "You are the local AI assistant inside DSH Pocket, not a desktop coding agent.",
-        "Respond in the user's language. Describe only capabilities listed here as available, and never claim an action succeeded unless the corresponding tool confirms it.",
+        "Respond in the user's language. Describe only the capabilities listed in the \"DSH Pocket runtime facts\" section as available, and never claim an action succeeded unless the corresponding tool confirms it.",
     )
 
     @Synchronized
@@ -23,8 +23,13 @@ object AgentBriefing {
         dshHome.mkdirs()
         val instructionsFile = File(dshHome, INSTRUCTIONS)
         val existing = instructionsFile.takeIf(File::isFile)?.readText().orEmpty()
-        writeAtomically(File(dshHome, CAPABILITIES), capabilitiesJson(snapshot))
-        writeAtomically(instructionsFile, mergeManagedInstructions(existing, renderCapabilities(snapshot)))
+        // Both files are one briefing. Compute both payloads before touching either so a
+        // merge invariant failure cannot leave the JSON already updated while AGENTS.md
+        // still describes the previous capability set.
+        val json = capabilitiesJson(snapshot)
+        val instructions = mergeManagedInstructions(existing, renderCapabilities(snapshot))
+        writeAtomically(File(dshHome, CAPABILITIES), json)
+        writeAtomically(instructionsFile, instructions)
     }
 
     private fun renderPolicy(): String = buildString {
@@ -46,8 +51,8 @@ object AgentBriefing {
         appendLine("These facts are authoritative for DSH Pocket runtime capabilities only. They do not override user instructions about task goals, style, or safety.")
         appendLine()
         appendLine("## Workspace")
-        appendLine("- Workspace root: ${markdownCodeSpan(snapshot.workspace)}")
-        appendLine("- Keep file operations within the workspace unless the user has explicitly granted broader access and the relevant tool supports it.")
+        appendLine("- Workspace root: ${markdownCodeSpan(snapshot.workspace)}. The engine's default session workspace sits beneath it at deepseek-harness/default-workspace.")
+        appendLine("- Keep file operations within the workspace root unless the user has explicitly granted broader access and the relevant tool supports it.")
         appendLine()
         appendLine("## Capabilities")
         appendLine("- All-files access: ${if (snapshot.allFiles == CapabilityState.GRANTED) "granted" else "not granted"}.")
@@ -80,10 +85,14 @@ object AgentBriefing {
         .put("processExecutionReason", snapshot.processExecution.reason ?: JSONObject.NULL)
         .toString(2)
 
-    /** Replaces blocks in place; existing order follows the user file, while missing blocks are prepended. */
+    /**
+     * Replaces blocks in place; existing order follows the user file, while missing blocks
+     * are prepended. Policy merges first so a fresh file ends up with the runtime facts at
+     * the very start, where the baseline message wants them.
+     */
     internal fun mergeManagedInstructions(existing: String, generatedSection: String): String {
-        val withCapabilities = mergeManagedBlock(existing, START_MARKER, END_MARKER, generatedSection)
-        return mergeManagedBlock(withCapabilities, POLICY_START_MARKER, POLICY_END_MARKER, renderPolicy())
+        val withPolicy = mergeManagedBlock(existing, POLICY_START_MARKER, POLICY_END_MARKER, renderPolicy())
+        return mergeManagedBlock(withPolicy, START_MARKER, END_MARKER, generatedSection)
     }
 
     private fun mergeManagedBlock(
