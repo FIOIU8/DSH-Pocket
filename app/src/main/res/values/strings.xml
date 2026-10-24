@@ -64,6 +64,31 @@
     <string name="chat_retry_hint">Restart the engine from the Home local core card and try again.</string>
     <string name="chat_empty_response">The page returned no content.</string>
 
+    <string name="onboarding_welcome_title">Welcome to DSH Pocket</string>
+    <string name="onboarding_welcome_body">DSH Pocket runs the DeepSeek Harness engine locally on your phone, with a native chat and management interface.</string>
+    <string name="onboarding_welcome_exit_hint">All data stays on this device; the engine can be stopped from Settings at any time.</string>
+    <string name="onboarding_agreement_title">Agreement and privacy notes</string>
+    <string name="onboarding_terms_local">The engine, sessions, and credentials stay on this device; the local service only listens on 127.0.0.1.</string>
+    <string name="onboarding_terms_provider">Prompts and related context you send are transmitted to the model provider you configure.</string>
+    <string name="onboarding_terms_thirdparty">This app bundles third-party components such as Node.js and DSH; see THIRD-PARTY-NOTICES for their licenses.</string>
+    <string name="onboarding_terms_control">You can stop the engine or clear its data at any time from Settings.</string>
+    <string name="onboarding_agree_checkbox">I have read and agree to the above</string>
+    <string name="onboarding_permissions_title">Permissions (optional)</string>
+    <string name="onboarding_all_files_body">With all-files access granted, the agent reads and writes the shared workspace %1$s directly. Without it the app-private folder is used; nothing else changes.</string>
+    <string name="onboarding_all_files_granted">Granted</string>
+    <string name="onboarding_permissions_note">No other permissions are needed. The engine and app run entirely on-device; the notification only reports engine status.</string>
+    <string name="onboarding_next">Continue</string>
+    <string name="onboarding_back">Back</string>
+    <string name="onboarding_finish_cta">Get started</string>
+    <string name="onboarding_finish_title">All set</string>
+    <string name="onboarding_finish_subtitle">Your local engine is running — time to start chatting.</string>
+    <string name="onboarding_finish_waiting">Preparing the engine, hang tight…</string>
+    <string name="onboarding_finish_engine_value">Running · 127.0.0.1:%1$d</string>
+    <string name="onboarding_progress_extracting">Extracting runtime · %1$d%%</string>
+    <string name="onboarding_progress_starting">Starting engine…</string>
+    <string name="onboarding_progress_ready">Engine ready</string>
+    <string name="onboarding_step_pages">Step %1$d of %2$d</string>
+
     <string name="sessions_search_placeholder">Search by title</string>
     <string name="sessions_all">All</string>
     <string name="sessions_running">In progress</string>

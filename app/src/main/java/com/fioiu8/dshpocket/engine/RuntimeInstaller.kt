@@ -7,6 +7,7 @@ import com.fioiu8.dshpocket.BuildConfig
 import java.io.BufferedInputStream
 import java.io.File
 import java.io.FileOutputStream
+import java.util.zip.ZipFile
 import java.util.zip.ZipInputStream
 
 /**
@@ -49,12 +50,15 @@ object RuntimeInstaller {
     /**
      * Extracts the runtime. Safe to call again: a completed extraction short-circuits.
      * @param onProgress receives a human readable status, called from a background thread.
+     * @param onFraction receives extraction progress as 0..1 (called from a background
+     *   thread), or nothing when the packaged size cannot be determined up front.
      */
-    fun install(context: Context, onProgress: (String) -> Unit) {
+    fun install(context: Context, onProgress: (String) -> Unit, onFraction: ((Float) -> Unit)? = null) {
         val root = EnginePaths.root(context)
         val marker = EnginePaths.installMarker(context)
         if (isInstalled(context)) {
             onProgress("运行时已就绪")
+            onFraction?.invoke(1f)
             return
         }
 
@@ -66,6 +70,7 @@ object RuntimeInstaller {
         }
 
         onProgress("解压运行时…")
+        onFraction?.invoke(0f)
         if (root.exists() && !root.deleteRecursively()) {
             error("无法清理旧运行时目录：${root.absolutePath}")
         }
@@ -74,7 +79,18 @@ object RuntimeInstaller {
         val rootPath = root.canonicalPath + File.separator
 
         context.assets.open(ASSET).use { raw ->
-            ZipInputStream(BufferedInputStream(raw, 1 shl 20)).use { zip ->
+            val counter = CountingInputStream(raw)
+            val totalBytes = assetTotalBytes(context)
+            var reported = -1f
+            fun reportFraction() {
+                val total = totalBytes ?: return
+                val fraction = (counter.count.toFloat() / total).coerceIn(0f, 1f)
+                if (fraction - reported >= 0.05f || fraction == 1f) {
+                    reported = fraction
+                    onFraction?.invoke(fraction)
+                }
+            }
+            ZipInputStream(BufferedInputStream(counter, 1 shl 20)).use { zip ->
                 while (true) {
                     val entry = zip.nextEntry ?: break
                     val target = File(root, entry.name)
@@ -88,11 +104,15 @@ object RuntimeInstaller {
                         target.parentFile?.mkdirs()
                         FileOutputStream(target).use { out -> zip.copyTo(out, 1 shl 16) }
                         files++
-                        if (files % 2000 == 0) onProgress("解压运行时… $files 个文件")
+                        if (files % 2000 == 0) {
+                            onProgress("解压运行时… $files 个文件")
+                            reportFraction()
+                        }
                     }
                     zip.closeEntry()
                 }
             }
+            reportFraction()
         }
 
         onProgress("恢复执行权限…")
@@ -109,6 +129,21 @@ object RuntimeInstaller {
         File(root, "tmp").mkdirs()
         marker.writeText("${markerHeader(context)}\n$files files\n")
         onProgress("运行时就绪（$files 个文件）")
+        onFraction?.invoke(1f)
+    }
+
+    /**
+     * Uncompressed size of the packaged zip, read from the APK's own central directory —
+     * O(1), no second pass over the asset. Null when the APK layout defeats the lookup
+     * (split APKs, streaming writes), in which case callers fall back to an
+     * indeterminate progress display.
+     */
+    private fun assetTotalBytes(context: Context): Long? = try {
+        ZipFile(context.applicationInfo.sourceDir).use { apk ->
+            apk.getEntry("assets/$ASSET")?.size?.takeIf { it > 0 }
+        }
+    } catch (_: Throwable) {
+        null
     }
 
     private fun markerHeader(context: Context): String =
