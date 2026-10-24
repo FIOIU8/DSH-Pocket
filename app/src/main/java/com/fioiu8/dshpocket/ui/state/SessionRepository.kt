@@ -3,6 +3,7 @@ package com.fioiu8.dshpocket.ui.state
 import com.fioiu8.dshpocket.engine.EngineApi
 import com.fioiu8.dshpocket.engine.EngineApi.RpcResult
 import com.fioiu8.dshpocket.engine.EngineState
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -88,7 +89,22 @@ class SessionRepository(
     private val _state = MutableStateFlow(SessionUiState())
     val state: StateFlow<SessionUiState> = _state.asStateFlow()
 
+    @Volatile
     private var pollJob: Job? = null
+
+    /**
+     * Transport safety net: [EngineApi.rpc] maps IOExceptions to [RpcResult.Err], this
+     * keeps any other unexpected failure from crashing the poll loop or wedging the busy
+     * flags — an error state beats a dead app.
+     */
+    private suspend fun call(block: suspend () -> RpcResult): RpcResult =
+        try {
+            block()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (t: Throwable) {
+            RpcResult.Err("transport", t.message ?: t.toString())
+        }
 
     /**
      * Begins polling if it is not already running.
@@ -113,7 +129,7 @@ class SessionRepository(
 
     suspend fun refresh() {
         val source = source() ?: return
-        val result = source.list()
+        val result = call { source.list() }
         _state.update { current ->
             when (result) {
                 is RpcResult.Ok -> current.copy(
@@ -137,7 +153,7 @@ class SessionRepository(
     suspend fun archive(sessionId: String) {
         val source = source() ?: return
         _state.update { it.copy(archiving = true) }
-        val result = source.archive(sessionId)
+        val result = call { source.archive(sessionId) }
         _state.update { current ->
             when (result) {
                 is RpcResult.Ok -> current.copy(
@@ -156,7 +172,7 @@ class SessionRepository(
     suspend fun unarchive(sessionId: String) {
         val source = source() ?: return
         _state.update { it.copy(restoringId = sessionId) }
-        val result = source.unarchive(sessionId)
+        val result = call { source.unarchive(sessionId) }
         _state.update { current ->
             when (result) {
                 is RpcResult.Ok -> current.copy(
@@ -230,19 +246,24 @@ internal fun parseRows(items: JSONArray): List<SessionRow> = buildList {
         val values = item.optJSONObject("projections")?.optJSONObject("values")
         val model = values?.optJSONObject("modelSelection")?.optJSONObject("lastUsed")
         val stats = values?.optJSONObject("sessionStats")
-        // optString turns JSON null into the string "null"; treat that as missing.
-        val title = values?.optString("title")?.takeIf { it.isNotBlank() && it != "null" }
-        add(
-            SessionRow(
-                id = item.optString("sessionId"),
-                title = title,
-                updatedAt = item.optLong("updatedAt"),
-                running = item.optBoolean("running"),
-                provider = model?.optString("provider")?.takeIf { it.isNotBlank() && it != "null" },
-                model = model?.optString("model")?.takeIf { it.isNotBlank() && it != "null" },
-                steps = stats?.optInt("steps") ?: values?.optJSONArray("turnOutline")?.length() ?: 0,
-                cwd = item.optString("cwd").takeIf { it.isNotBlank() },
-            ),
-        )
+                // optString turns JSON null into the string "null"; treat that as missing.
+                val title = values?.optString("title")?.takeIf { it.isNotBlank() && it != "null" }
+                // optInt returns 0 (not null) when the field is missing, so the turnOutline
+                // fallback has to check presence explicitly.
+                val steps = stats?.takeIf { it.has("steps") && !it.isNull("steps") }?.optInt("steps")
+                    ?: values?.optJSONArray("turnOutline")?.length()
+                    ?: 0
+                add(
+                    SessionRow(
+                        id = item.optString("sessionId"),
+                        title = title,
+                        updatedAt = item.optLong("updatedAt"),
+                        running = item.optBoolean("running"),
+                        provider = model?.optString("provider")?.takeIf { it.isNotBlank() && it != "null" },
+                        model = model?.optString("model")?.takeIf { it.isNotBlank() && it != "null" },
+                        steps = steps,
+                        cwd = item.optString("cwd").takeIf { it.isNotBlank() && it != "null" },
+                    ),
+                )
     }
 }.sortedByDescending { it.updatedAt }

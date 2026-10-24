@@ -14,6 +14,7 @@ import okhttp3.WebSocketListener
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedReader
+import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.UUID
@@ -51,6 +52,10 @@ object EngineApi {
      * A 401 means the WebView cookie is gone (fresh engine install or expiry); when
      * [launchToken] is provided the token→cookie exchange runs once and the call is
      * retried before giving up.
+     *
+     * Transport failures (the engine being down or restarting is routine) come back as
+     * [RpcResult.Err] rather than propagating, so every caller can treat the result
+     * uniformly; only cancellation escapes.
      */
     suspend fun rpc(
         baseUrl: String,
@@ -58,13 +63,17 @@ object EngineApi {
         args: JSONObject,
         launchToken: String? = null,
     ): RpcResult = withContext(Dispatchers.IO) {
-        var response = exchange(baseUrl, endpoint, args)
-        if (response.status == 401 && !launchToken.isNullOrBlank()) {
-            if (SessionCookie.establish(baseUrl, launchToken)) {
-                response = exchange(baseUrl, endpoint, args)
+        try {
+            var response = exchange(baseUrl, endpoint, args)
+            if (response.status == 401 && !launchToken.isNullOrBlank()) {
+                if (SessionCookie.establish(baseUrl, launchToken)) {
+                    response = exchange(baseUrl, endpoint, args)
+                }
             }
+            parse(response)
+        } catch (e: IOException) {
+            RpcResult.Err("transport", e.message.orEmpty().ifBlank { e.javaClass.simpleName })
         }
-        parse(response)
     }
 
     private class RawResponse(val status: Int, val body: String)
@@ -84,9 +93,9 @@ object EngineApi {
             // SameSite=Strict cookie minted for this exact authority; the loopback Host
             // satisfies the engine's trusted-fence check for native clients.
             CookieManager.getInstance().getCookie(baseUrl)?.let { setRequestProperty("Cookie", it) }
-            outputStream.use { it.write(envelope.toString().toByteArray(Charsets.UTF_8)) }
         }
         try {
+            connection.outputStream.use { it.write(envelope.toString().toByteArray(Charsets.UTF_8)) }
             val stream = if (connection.responseCode in 200..299) {
                 connection.inputStream
             } else {
@@ -104,16 +113,16 @@ object EngineApi {
             return RpcResult.Err("http/${response.status}", response.body.take(200).ifBlank { "HTTP ${response.status}" })
         }
         val json = runCatching { JSONObject(response.body) }.getOrNull()
-            ?: return RpcResult.Err("protocol", "响应不是 JSON：${response.body.take(120)}")
+            ?: return RpcResult.Err("protocol", "Response is not JSON: ${response.body.take(120)}")
         val result = json.optJSONObject("result")
-            ?: return RpcResult.Err("protocol", "响应缺少 result 字段")
+            ?: return RpcResult.Err("protocol", "Response lacks the result field")
         return if (result.optBoolean("ok")) {
             RpcResult.Ok(result.opt("value"))
         } else {
             val error = result.optJSONObject("error")
             RpcResult.Err(
                 error?.optString("code").orEmpty().ifBlank { "unknown" },
-                error?.optString("message").orEmpty().ifBlank { "未知错误" },
+                error?.optString("message").orEmpty().ifBlank { "Unknown error" },
             )
         }
     }
@@ -151,7 +160,7 @@ object EngineApi {
             builder.build(),
             object : WebSocketListener() {
                 override fun onOpen(webSocket: WebSocket, response: Response) {
-                    if (!webSocket.send(openFrame.toString())) channel.close(IllegalStateException("无法打开会话事件流"))
+                    if (!webSocket.send(openFrame.toString())) channel.close(IllegalStateException("Could not open the session event stream"))
                 }
 
                 override fun onMessage(webSocket: WebSocket, text: String) {
@@ -161,10 +170,20 @@ object EngineApi {
                         "item" -> (frame.opt("value") as? JSONObject)?.let { channel.trySend(it) }
                         "error" -> {
                             val error = frame.optJSONObject("error")
-                            channel.close(IllegalStateException(error?.optString("message").orEmpty().ifBlank { "会话事件流失败" }))
+                            channel.close(IllegalStateException(error?.optString("message").orEmpty().ifBlank { "Session event stream failed" }))
                         }
                         "end" -> channel.close()
                     }
+                }
+
+                // A server-side close handshake must end the flow too, or the collector
+                // would stay suspended forever after an orderly shutdown.
+                override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+                    channel.close()
+                }
+
+                override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                    channel.close()
                 }
 
                 override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
