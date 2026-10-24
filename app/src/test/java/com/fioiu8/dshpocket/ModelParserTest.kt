@@ -156,11 +156,14 @@ class ModelParserTest {
     }
 
     @Test
-    fun `key states treat a missing entry as not configured`() {
+    fun `key states treat a missing entry as not configured and a bad shape as no reply`() {
         val reply = JSONObject().put("A_API_KEY", JSONObject().put("configured", true))
 
         assertEquals(mapOf("A_API_KEY" to true, "B_API_KEY" to false), ModelParser.keyStates(reply, listOf("A_API_KEY", "B_API_KEY")))
-        assertEquals(emptyMap<String, Boolean>(), ModelParser.keyStates(null, listOf("A_API_KEY")))
+        // A malformed reply yields null so the repository keeps its previous states
+        // instead of clearing every configured slot.
+        assertNull(ModelParser.keyStates(null, listOf("A_API_KEY")))
+        assertNull(ModelParser.keyStates("not an object", listOf("A_API_KEY")))
     }
 
     // ---- provider id ---------------------------------------------------------------------

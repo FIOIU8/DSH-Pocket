@@ -46,6 +46,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -113,27 +114,40 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit, modelRepository: ModelR
     // property the replaced `by remember` delegates had.
     val modelState by modelRepository.state.collectAsState()
 
-    var pickingProvider by remember { mutableStateOf(false) }
-    var pickingModel by remember { mutableStateOf(false) }
-    var keyDialogFor by remember { mutableStateOf<ProviderInfo?>(null) }
-    var deleteProvider by remember { mutableStateOf<ProviderInfo?>(null) }
-    var editorPage by remember { mutableStateOf(false) }
-    var headersPage by remember { mutableStateOf(false) }
-    var modelsPage by remember { mutableStateOf(false) }
-    var editingProvider by remember { mutableStateOf<ProviderInfo?>(null) }
-    var editorId by remember { mutableStateOf("") }
-    var editorName by remember { mutableStateOf("") }
-    var editorBaseUrl by remember { mutableStateOf("") }
-    var editorApi by remember { mutableStateOf(providerProtocols.first().first) }
-    var editorApiKey by remember { mutableStateOf("") }
-    var editorModels by remember { mutableStateOf("") }
-    var editorHeaders by remember { mutableStateOf("") }
+    // Navigation and form state survive a rotation: a half-filled service draft must not
+    // vanish because the device changed orientation mid-edit. Provider references are
+    // stored as ids — the data-class instances are not Bundle-saveable, and resolving
+    // them from the (fresh) repository state is also more current than a captured copy.
+    var pickingProvider by rememberSaveable { mutableStateOf(false) }
+    var pickingModel by rememberSaveable { mutableStateOf(false) }
+    var keyDialogForId by rememberSaveable { mutableStateOf<String?>(null) }
+    var deleteProviderId by rememberSaveable { mutableStateOf<String?>(null) }
+    var editorPage by rememberSaveable { mutableStateOf(false) }
+    var headersPage by rememberSaveable { mutableStateOf(false) }
+    var modelsPage by rememberSaveable { mutableStateOf(false) }
+    var editingProviderId by rememberSaveable { mutableStateOf<String?>(null) }
+    var editorId by rememberSaveable { mutableStateOf("") }
+    var editorName by rememberSaveable { mutableStateOf("") }
+    var editorBaseUrl by rememberSaveable { mutableStateOf("") }
+    var editorApi by rememberSaveable { mutableStateOf(providerProtocols.first().first) }
+    var editorApiKey by rememberSaveable { mutableStateOf("") }
+    var editorModels by rememberSaveable { mutableStateOf("") }
+    var editorHeaders by rememberSaveable { mutableStateOf("") }
+    var officialApiPage by rememberSaveable { mutableStateOf(false) }
+    var officialApiKey by rememberSaveable { mutableStateOf("") }
+    var modelsApplyToken by remember { mutableIntStateOf(0) }
+    // JSON payloads are not Bundle-saveable; they only back the discovery dialog, which
+    // is acceptable to lose on a rotation.
     var editorModelDetails by remember { mutableStateOf<Map<String, JSONObject>>(emptyMap()) }
     var discoveredModels by remember { mutableStateOf<List<JSONObject>?>(null) }
     var selectedDiscoveredModels by remember { mutableStateOf<Set<String>>(emptySet()) }
-    var officialApiPage by remember { mutableStateOf(false) }
-    var officialApiKey by remember { mutableStateOf("") }
     val context = LocalContext.current
+
+    // Resolved from live repository state, so a rotation re-attaches the right provider
+    // even if the list changed meanwhile.
+    val editingProvider = editingProviderId?.let { id -> modelState.settings.providers.firstOrNull { it.id == id } }
+    val keyDialogFor = keyDialogForId?.let { id -> modelState.settings.providers.firstOrNull { it.id == id } }
+    val deleteProvider = deleteProviderId?.let { id -> modelState.settings.providers.firstOrNull { it.id == id } }
 
     // Resolved here, in composable scope, then captured. `stringResource` cannot be
     // called from a LaunchedEffect block or a callback lambda, and reading the string
@@ -162,7 +176,7 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit, modelRepository: ModelR
 
 
     fun openEditor(provider: ProviderInfo?) {
-        editingProvider = provider
+        editingProviderId = provider?.id
         editorId = provider?.id.orEmpty()
         editorName = provider?.displayName.orEmpty()
         editorBaseUrl = provider?.baseURL.orEmpty()
@@ -323,7 +337,7 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit, modelRepository: ModelR
     fun removeProvider(provider: ProviderInfo) {
         if (modelState.settings.defaultProvider == provider.id) {
             error = labelDefaultServiceDeleteError
-            deleteProvider = null
+            deleteProviderId = null
             return
         }
         scope.launch {
@@ -340,7 +354,7 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit, modelRepository: ModelR
                     is RpcResult.Err -> {
                         actionError = formatResource(com.fioiu8.dshpocket.R.string.models_delete_key_error, credential.code, credential.message)
                         busy = false
-                        deleteProvider = null
+                        deleteProviderId = null
                         return@launch
                     }
                     is RpcResult.Ok -> Unit
@@ -361,7 +375,7 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit, modelRepository: ModelR
                 is RpcResult.Ok -> reload()
             }
             busy = false
-            deleteProvider = null
+            deleteProviderId = null
         }
     }
 
@@ -537,6 +551,9 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit, modelRepository: ModelR
                     editorModelDetails = details
                     editorModels = encodeProviderModels(current)
                     discoveredModels = null
+                    // The editor's row list is remembered, not derived; this token makes it
+                    // re-parse so the applied models show up immediately.
+                    modelsApplyToken += 1
                 },
                 headers = editorHeaders,
                 onHeadersChange = { editorHeaders = it },
@@ -544,6 +561,7 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit, modelRepository: ModelR
                 onHeadersPage = { headersPage = it },
                 modelsPage = modelsPage,
                 onModelsPage = { modelsPage = it },
+                modelsApplyToken = modelsApplyToken,
                 errorMessage = error ?: actionError,
                 takenIds = modelState.settings.providers.map { it.id },
                 defaultProvider = modelState.settings.defaultProvider,
@@ -576,28 +594,48 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit, modelRepository: ModelR
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = DshSpacing.page),
-                items = listOf {
-                    ListItem(
-                        headlineContent = {
-                            Text(
-                                "${modelState.settings.defaultProvider ?: stringResource(com.fioiu8.dshpocket.R.string.models_not_set)} / ${modelState.settings.defaultModel ?: stringResource(com.fioiu8.dshpocket.R.string.models_not_set)}",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.SemiBold,
-                            )
-                        },
-                        supportingContent = {
-                            Text(stringResource(com.fioiu8.dshpocket.R.string.models_new_session_hint))
-                        },
-                        trailingContent = {
-                            Icon(
-                                Icons.Filled.ChevronRight,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        },
-                        modifier = Modifier.heightIn(min = DshSpacing.touchTarget).clickable { pickingProvider = true },
-                    )
-                },
+                items = listOf(
+                    {
+                        ListItem(
+                            headlineContent = {
+                                Text(
+                                    modelState.settings.defaultProvider ?: stringResource(com.fioiu8.dshpocket.R.string.models_not_set),
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                            },
+                            supportingContent = { Text(stringResource(com.fioiu8.dshpocket.R.string.models_select_service)) },
+                            trailingContent = {
+                                Icon(
+                                    Icons.Filled.ChevronRight,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            },
+                            modifier = Modifier.heightIn(min = DshSpacing.touchTarget).clickable { pickingProvider = true },
+                        )
+                    },
+                    {
+                        ListItem(
+                            headlineContent = {
+                                Text(
+                                    modelState.settings.defaultModel ?: stringResource(com.fioiu8.dshpocket.R.string.models_not_set),
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                            },
+                            supportingContent = { Text(stringResource(com.fioiu8.dshpocket.R.string.models_new_session_hint)) },
+                            trailingContent = {
+                                Icon(
+                                    Icons.Filled.ChevronRight,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            },
+                            modifier = Modifier.heightIn(min = DshSpacing.touchTarget).clickable { pickingModel = true },
+                        )
+                    },
+                ),
             )
 
             SectionHeader(stringResource(com.fioiu8.dshpocket.R.string.models_services))
@@ -624,7 +662,7 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit, modelRepository: ModelR
                                 IconButton(onClick = { openEditor(provider) }, enabled = !busy) {
                                     Icon(Icons.Filled.Edit, contentDescription = stringResource(com.fioiu8.dshpocket.R.string.edit, provider.displayName))
                                 }
-                                IconButton(onClick = { deleteProvider = provider }, enabled = !busy) {
+                                IconButton(onClick = { deleteProviderId = provider.id }, enabled = !busy) {
                                     Icon(Icons.Filled.DeleteOutline, contentDescription = stringResource(com.fioiu8.dshpocket.R.string.delete) + " ${provider.displayName}")
                                 }
                             }
@@ -641,7 +679,7 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit, modelRepository: ModelR
                                 )
                             }
                             Text(
-                                text = provider.models.joinToString("、") { it.second.ifBlank { it.first } }
+                                text = provider.models.joinToString { it.second.ifBlank { it.first } }
                                     .ifBlank { stringResource(com.fioiu8.dshpocket.R.string.models_unconfigured) },
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -663,7 +701,7 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit, modelRepository: ModelR
                                         style = MaterialTheme.typography.bodySmall,
                                         color = if (configured) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
                                     )
-                                    TextButton(onClick = { keyDialogFor = provider }, modifier = Modifier.dshControl()) {
+                                    TextButton(onClick = { keyDialogForId = provider.id }, modifier = Modifier.dshControl()) {
                                         Text(if (configured) stringResource(com.fioiu8.dshpocket.R.string.models_change_api_key) else stringResource(com.fioiu8.dshpocket.R.string.models_set_api_key))
                                     }
                                     if (configured) {
@@ -898,7 +936,7 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit, modelRepository: ModelR
     keyDialogFor?.let { provider ->
         var keyValue by remember(provider.id) { mutableStateOf("") }
         AlertDialog(
-            onDismissRequest = { keyDialogFor = null },
+            onDismissRequest = { if (!busy) keyDialogForId = null },
             title = { Text(stringResource(com.fioiu8.dshpocket.R.string.models_set_provider_key, provider.displayName)) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -916,9 +954,9 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit, modelRepository: ModelR
                 }
             },
             confirmButton = {
-                TextButton(enabled = keyValue.isNotBlank(), onClick = {
+                TextButton(enabled = keyValue.isNotBlank() && !busy, onClick = {
                     val value = keyValue.trim()
-                    keyDialogFor = null
+                    keyDialogForId = null
                     scope.launch {
                         busy = true
                         when (val result = EngineApi.rpc(
@@ -934,14 +972,14 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit, modelRepository: ModelR
                     }
                 }, modifier = Modifier.dshControl()) { Text(stringResource(com.fioiu8.dshpocket.R.string.save)) }
             },
-        dismissButton = { TextButton(onClick = { keyDialogFor = null }, modifier = Modifier.dshControl()) { Text(stringResource(com.fioiu8.dshpocket.R.string.cancel)) } },
+        dismissButton = { TextButton(enabled = !busy, onClick = { keyDialogForId = null }, modifier = Modifier.dshControl()) { Text(stringResource(com.fioiu8.dshpocket.R.string.cancel)) } },
         )
     }
 
     deleteProvider?.let { provider ->
         val isDefault = modelState.settings.defaultProvider == provider.id
         AlertDialog(
-            onDismissRequest = { if (!busy) deleteProvider = null },
+            onDismissRequest = { if (!busy) deleteProviderId = null },
             title = { Text(stringResource(com.fioiu8.dshpocket.R.string.models_delete_service_title)) },
             text = {
                 Text(
@@ -957,7 +995,7 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit, modelRepository: ModelR
                 ) { Text(stringResource(com.fioiu8.dshpocket.R.string.delete)) }
             },
             dismissButton = {
-                TextButton(onClick = { deleteProvider = null }, modifier = Modifier.dshControl()) { Text(stringResource(com.fioiu8.dshpocket.R.string.cancel)) }
+                TextButton(enabled = !busy, onClick = { deleteProviderId = null }, modifier = Modifier.dshControl()) { Text(stringResource(com.fioiu8.dshpocket.R.string.cancel)) }
             },
         )
     }
@@ -1036,6 +1074,7 @@ private fun ProviderEditorPage(
     onHeadersPage: (Boolean) -> Unit,
     modelsPage: Boolean,
     onModelsPage: (Boolean) -> Unit,
+    modelsApplyToken: Int,
     errorMessage: String?,
     takenIds: List<String>,
     defaultProvider: String?,
@@ -1045,7 +1084,9 @@ private fun ProviderEditorPage(
     onSave: (ProviderDraft) -> Unit,
 ) {
     var protocolMenu by remember { mutableStateOf(false) }
-    var modelRows by remember(modelsPage) {
+    // Keyed on the apply token too: applying discovered models updates the parent's
+    // `models` text, and without this the remembered rows would keep showing the old list.
+    var modelRows by remember(modelsPage, modelsApplyToken) {
         mutableStateOf(parseProviderModels(models).orEmpty().ifEmpty { listOf("" to "") })
     }
     val parsedModels = parseProviderModels(models)
@@ -1247,7 +1288,7 @@ private fun ProviderEditorPage(
                                     }
                                     val contextWindow = model.optInt("contextWindow", 0)
                                     if (contextWindow > 0) Text(
-                                        "Context ${contextWindow}",
+                                        stringResource(com.fioiu8.dshpocket.R.string.models_context_window, contextWindow),
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )

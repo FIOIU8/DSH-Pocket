@@ -134,8 +134,11 @@ class ModelRepository(private val source: () -> ModelSource?) {
         )
         if (refs.isNotEmpty()) {
             (source.describeCredentials(refs) as? RpcResult.Ok)?.let { ok ->
-                val keyStates = ModelParser.keyStates(ok.value, refs)
-                _state.update { it.copy(keyStates = keyStates) }
+                // A success reply with an unexpected shape keeps the old states instead
+                // of clearing them; only a well-formed reply overwrites.
+                ModelParser.keyStates(ok.value, refs)?.let { keyStates ->
+                    _state.update { it.copy(keyStates = keyStates) }
+                }
             }
         }
     }
