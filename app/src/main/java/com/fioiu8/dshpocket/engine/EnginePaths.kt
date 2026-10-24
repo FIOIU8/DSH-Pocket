@@ -1,8 +1,10 @@
 package com.fioiu8.dshpocket.engine
 
 import android.content.Context
+import android.os.Build
 import android.os.Environment
 import java.io.File
+import java.util.concurrent.TimeUnit
 
 /**
  * Layout and environment of the bundled bionic runtime.
@@ -44,10 +46,17 @@ object EnginePaths {
      * Defaults to app-private storage, which is all the default tier can reach. Once the
      * user grants all-files access the app switches this to [SHARED_WORKSPACE] so the
      * agent operates on real, user-visible files.
+     *
+     * A leftover shared folder (previous install, MTP copy) must not win over a revoked
+     * permission: without the grant the app cannot write there, and the engine cwd, the
+     * home patch and the agent briefing would all point at a dead directory.
      */
     fun workspace(context: Context): File {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !Environment.isExternalStorageManager()) {
+            return privateWorkspace(context)
+        }
         val shared = File(Environment.getExternalStorageDirectory(), "DSHPocket")
-        return if (shared.isDirectory || shared.mkdirs()) shared else File(context.filesDir, "workspace")
+        return if (shared.isDirectory || shared.mkdirs()) shared else privateWorkspace(context)
     }
 
     fun privateWorkspace(context: Context): File = File(context.filesDir, "workspace")
@@ -110,13 +119,21 @@ object EnginePaths {
             appendLine("# directory, so it has to be pointed at a writable location.")
             appendLine("- id: workspace-controller")
             appendLine("  config:")
-            appendLine("    documentsDirectory: \"${workspace.absolutePath}\"")
+            appendLine("    documentsDirectory: \"${yamlDoubleQuoted(workspace.absolutePath)}\"")
             appendLine("- insert:")
             appendLine("    - id: dsh-pocket-native-chat-suggestions")
-            appendLine("      name: \"${nativeChatSuggestionsModule.toURI().toASCIIString()}\"")
+            appendLine("      name: \"${yamlDoubleQuoted(nativeChatSuggestionsModule.toURI().toASCIIString())}\"")
         }
         File(dshHome, "cordis.patch.yml").writeText(yaml)
     }
+
+    /**
+     * Escapes for a YAML double-quoted scalar. Paths are normally boring, but a backslash
+     * or quote in a directory name would otherwise produce a file the engine cannot parse,
+     * and the unparseable patch silently takes the default workspace down with it.
+     */
+    private fun yamlDoubleQuoted(value: String): String =
+        value.replace("\\", "\\\\").replace("\"", "\\\"")
 
     /** Version reported by the packaged dsh, read straight from its manifest. */
     fun dshVersion(root: File): String? = try {
@@ -134,16 +151,40 @@ object EnginePaths {
     }
 
     /** Runs `node --version` once; used only by the diagnostics panel. */
-    fun probeNodeVersion(root: File, dshHome: File): String? = try {
-        val builder = ProcessBuilder(node(root).absolutePath, "--version")
-        builder.directory(root)
-        builder.environment().putAll(environment(root, dshHome))
-        builder.redirectErrorStream(true)
-        val proc = builder.start()
-        val out = proc.inputStream.bufferedReader().readText().trim()
-        proc.waitFor()
-        out.ifBlank { null }
-    } catch (_: Throwable) {
-        null
+    fun probeNodeVersion(root: File, dshHome: File): String? {
+        val proc = try {
+            ProcessBuilder(node(root).absolutePath, "--version")
+                .apply {
+                    directory(root)
+                    environment().putAll(environment(root, dshHome))
+                    redirectErrorStream(true)
+                }
+                .start()
+        } catch (_: Throwable) {
+            return null
+        }
+        try {
+            // The reader is closed explicitly — readText() alone would leak the pipe fd.
+            val out = proc.inputStream.bufferedReader().use { reader ->
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    // Bounded wait: a wedged node must not hang the settings screen.
+                    if (!proc.waitFor(PROBE_TIMEOUT_SECONDS, TimeUnit.SECONDS)) return null
+                } else {
+                    // No timed waitFor pre-O; `node --version` exits immediately anyway.
+                    proc.waitFor()
+                }
+                reader.readText().trim()
+            }
+            return out.ifBlank { null }
+        } catch (_: Throwable) {
+            return null
+        } finally {
+            proc.destroy()
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && proc.isAlive) {
+                proc.destroyForcibly()
+            }
+        }
     }
+
+    private const val PROBE_TIMEOUT_SECONDS = 5L
 }
