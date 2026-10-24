@@ -76,10 +76,9 @@ class EngineService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == ACTION_STOP) {
-            stopSelf()
-            return START_NOT_STICKY
-        }
+        // Deliberately idempotent: a START_STICKY restart delivers a null intent and must
+        // still bring the engine back. Stopping goes through stopService(), which runs
+        // onDestroy() — there is no intent-based stop channel.
         controller.start()
         return START_STICKY
     }
@@ -153,8 +152,6 @@ class EngineService : Service() {
         is EngineState.Failed -> "引擎异常：$message"
     }
 }
-
-private const val ACTION_STOP = "com.fioiu8.dshpocket.engine.STOP"
 
 private object EngineHealth {
 

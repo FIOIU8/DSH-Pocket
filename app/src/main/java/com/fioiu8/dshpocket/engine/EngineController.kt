@@ -1,10 +1,12 @@
 package com.fioiu8.dshpocket.engine
 
 import android.app.Application
+import android.os.Build
 import android.util.Log
 import com.fioiu8.dshpocket.capability.AgentBriefing
 import com.fioiu8.dshpocket.capability.Capabilities
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -22,6 +24,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.TimeUnit
 
 sealed interface EngineState {
     data object Idle : EngineState
@@ -56,6 +59,13 @@ class EngineController(private val context: Application) {
         private const val MAX_LOG_LINES = 300
 
         /**
+         * How long a SIGTERM'd engine gets to exit on its own before it is killed. The
+         * engine binds a fixed port, so a restart that does not wait for the old process
+         * would race it for the port and die with EADDRINUSE.
+         */
+        private const val STOP_GRACE_SECONDS = 5L
+
+        /**
          * One engine per process. An Activity recreation must not spawn a second engine
          * onto the same port, so the controller is shared rather than re-created.
          */
@@ -71,7 +81,15 @@ class EngineController(private val context: Application) {
         }
     }
 
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    // Last-resort guard: a crash in a fire-and-forget coroutine (log pumping, the stop
+    // watcher) must not take the process down. Callers of `rpc` handle their own errors;
+    // this only catches what escapes everything else.
+    private val scope = CoroutineScope(
+        SupervisorJob() + Dispatchers.IO + CoroutineExceptionHandler { _, throwable ->
+            Log.e(TAG, "uncaught failure in engine scope", throwable)
+            appendLog("[error] ${throwable.message ?: throwable.javaClass.simpleName}")
+        },
+    )
 
     /**
      * Scope for work that outlives any one screen, such as the shared session repository.
@@ -87,6 +105,12 @@ class EngineController(private val context: Application) {
 
     private val started = AtomicBoolean(false)
     private val generation = AtomicLong(0)
+    // Set by the settings screen's explicit stop. Activity recreations must not silently
+    // undo that choice: onCreate unconditionally calls EngineService.start → controller
+    // start, which would otherwise resurrect the engine the user just stopped. A real
+    // restart (home card / settings restart button) clears it again.
+    @Volatile
+    private var userStopped = false
     private val lifecycleLock = Any()
     private val processLock = Any()
     @Volatile
@@ -95,6 +119,7 @@ class EngineController(private val context: Application) {
     private var bootJob: Job? = null
 
     fun start() {
+        if (userStopped) return
         synchronized(lifecycleLock) {
             if (!started.compareAndSet(false, true)) return
             val runId = generation.incrementAndGet()
@@ -103,20 +128,30 @@ class EngineController(private val context: Application) {
     }
 
     fun restart() {
+        userStopped = false
         stop()
         start()
     }
 
-    fun stop() {
+    fun stop(byUser: Boolean = false) {
+        if (byUser) userStopped = true
         synchronized(lifecycleLock) {
             started.set(false)
             generation.incrementAndGet()
             bootJob?.cancel()
             bootJob = null
         }
-        synchronized(processLock) {
-            process?.destroy()
-            process = null
+        val stopping = synchronized(processLock) { process }
+        if (stopping != null) {
+            stopping.destroy()
+            // SIGTERM alone is not an exit: a node busy in a request can shrug it off.
+            // Wait off the calling thread (onDestroy runs on main), then escalate.
+            scope.launch {
+                awaitProcessExit(stopping)
+                synchronized(processLock) {
+                    if (process === stopping) process = null
+                }
+            }
         }
         _state.value = EngineState.Idle
     }
@@ -124,6 +159,20 @@ class EngineController(private val context: Application) {
     fun dispose() {
         stop()
         scope.cancel()
+    }
+
+    /**
+     * Rewrites the agent briefing files without restarting the engine. The engine reads
+     * AGENTS.md when a session starts, so a capability granted mid-run reaches the agent
+     * on its next turn instead of after the next spawn. Only meaningful while the engine
+     * is running; [spawn] writes the same files on every boot.
+     */
+    fun refreshBriefing(snapshot: com.fioiu8.dshpocket.capability.CapabilitySnapshot) {
+        if (_state.value !is EngineState.Ready) return
+        scope.launch {
+            runCatching { AgentBriefing.write(EnginePaths.dshHome(context), snapshot) }
+                .onFailure { Log.w(TAG, "briefing refresh failed", it) }
+        }
     }
 
     private suspend fun boot(runId: Long) {
@@ -174,6 +223,8 @@ class EngineController(private val context: Application) {
         pb.environment().putAll(EnginePaths.environment(root, dshHome))
         pb.redirectErrorStream(false)
 
+        awaitPreviousEngineExit()
+
         val proc = synchronized(processLock) {
             if (!isCurrent(runId)) return
             pb.start().also { process = it }
@@ -198,6 +249,37 @@ class EngineController(private val context: Application) {
                     },
                 )
             }
+        }
+    }
+
+    /**
+     * A restart can arrive while the previous engine is still draining its SIGTERM; the
+     * fixed port stays bound until that process is gone, so starting a new node before
+     * then would make it die with EADDRINUSE. Runs on the boot coroutine (IO), never on
+     * main.
+     */
+    private fun awaitPreviousEngineExit() {
+        val previous = synchronized(processLock) { process } ?: return
+        awaitProcessExit(previous)
+    }
+
+    /**
+     * Waits [STOP_GRACE_SECONDS] for the process to react to the SIGTERM that
+     * [stop]/destroy sent, then escalates to SIGKILL.
+     *
+     * The timed Process APIs are API 26+; on 24/25 the plain blocking waitFor stands in.
+     * Both call sites already run on background threads, and a node that never exits on
+     * SIGTERM is pathological, so the unbounded wait there is the least-bad fallback.
+     */
+    private fun awaitProcessExit(process: Process) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            if (!process.waitFor(STOP_GRACE_SECONDS, TimeUnit.SECONDS)) {
+                appendLog("[engine ignored SIGTERM for ${STOP_GRACE_SECONDS}s, killing]")
+                process.destroyForcibly()
+                process.waitFor(STOP_GRACE_SECONDS, TimeUnit.SECONDS)
+            }
+        } else {
+            process.waitFor()
         }
     }
 
