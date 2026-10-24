@@ -89,7 +89,9 @@ fun PluginsScreen(state: EngineState, onMenu: () -> Unit, pluginRepository: Plug
             scope.launch {
                 pluginRepository.setPluginEnabled(row.id, enabled)
                 busyId = null
-                refresh()
+                // Silent reload: the pull-to-refresh indicator belongs to explicit
+                // refresh gestures, not to every toggle flip.
+                pluginRepository.reload()
             }
         }
     }

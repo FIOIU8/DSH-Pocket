@@ -48,9 +48,9 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -66,7 +66,8 @@ import com.fioiu8.dshpocket.engine.EnginePaths
 import com.fioiu8.dshpocket.engine.EngineState
 import com.fioiu8.dshpocket.engine.RuntimeInstaller
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import com.fioiu8.dshpocket.ui.theme.DshShapes
 import com.fioiu8.dshpocket.ui.theme.DshSpacing
 import com.fioiu8.dshpocket.ui.theme.dshSpring
@@ -161,7 +162,6 @@ fun SettingsDetailScreen(
     onLanguageChange: (AppLanguage) -> Unit,
 ) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     val animationsEnabled = systemAnimationsEnabled()
     var runtimeSize by remember { mutableStateOf<Long?>(null) }
     var dshVersion by remember { mutableStateOf<String?>(null) }
@@ -172,10 +172,13 @@ fun SettingsDetailScreen(
 
     LaunchedEffect(Unit) {
         val root = EnginePaths.root(context)
-        scope.launch(Dispatchers.IO) {
+        val dshHome = EnginePaths.dshHome(context)
+        // One IO hop for the whole probe; the outer effect coroutine suspends instead of
+        // spawning a second, unmanaged scope for it.
+        withContext(Dispatchers.IO) {
             runtimeSize = RuntimeInstaller.sizeBytes(root)
             dshVersion = EnginePaths.dshVersion(root)
-            nodeVersion = EnginePaths.probeNodeVersion(root, EnginePaths.dshHome(context))
+            nodeVersion = EnginePaths.probeNodeVersion(root, dshHome)
             workspacePath = EnginePaths.workspace(context).absolutePath
         }
     }
@@ -350,6 +353,10 @@ fun SettingsDetailScreen(
     }
 
     if (showLanguageDialog) {
+        // Two steps on purpose: picking an entry only records the choice, the confirm
+        // button applies it and recreates the activity. A stray tap used to rebuild the
+        // whole app (WebView included) with no way back.
+        var pendingLanguage by remember { mutableStateOf(language) }
         AlertDialog(
             onDismissRequest = { showLanguageDialog = false },
             title = { Text(stringResource(com.fioiu8.dshpocket.R.string.language_dialog_title)) },
@@ -359,23 +366,25 @@ fun SettingsDetailScreen(
                         Row(
                             Modifier
                                 .fillMaxWidth()
-                                .clickable {
-                                    showLanguageDialog = false
-                                    onLanguageChange(option)
-                                }
+                                .clickable { pendingLanguage = option }
                                 .padding(vertical = 6.dp),
                             verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
                         ) {
-                            RadioButton(selected = language == option, onClick = {
-                                showLanguageDialog = false
-                                onLanguageChange(option)
-                            })
+                            RadioButton(selected = pendingLanguage == option, onClick = { pendingLanguage = option })
                             Text(languageLabel(option))
                         }
                     }
                 }
             },
-            confirmButton = {},
+            confirmButton = {
+                TextButton(
+                    enabled = pendingLanguage != language,
+                    onClick = {
+                        showLanguageDialog = false
+                        onLanguageChange(pendingLanguage)
+                    },
+                ) { Text(stringResource(com.fioiu8.dshpocket.R.string.save)) }
+            },
             dismissButton = { TextButton(onClick = { showLanguageDialog = false }) { Text(stringResource(com.fioiu8.dshpocket.R.string.cancel)) } },
         )
     }
@@ -420,8 +429,18 @@ private fun HelperText(text: String) {
 @Composable
 private fun EngineCard(state: EngineState, showLog: Boolean, onRestart: () -> Unit, onStop: () -> Unit, onToggleLog: () -> Unit) {
     val animationsEnabled = systemAnimationsEnabled()
+    // One-second heartbeat so the "running for…" readout actually counts up instead of
+    // freezing at the value of whatever recomposition last happened to render it.
+    var uptimeNow by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(state) {
+        if (state !is EngineState.Ready) return@LaunchedEffect
+        while (true) {
+            delay(1_000)
+            uptimeNow = System.currentTimeMillis()
+        }
+    }
     val statusText = when (state) {
-        is EngineState.Ready -> stringResource(com.fioiu8.dshpocket.R.string.settings_status_running, state.baseUrl, formatDuration(System.currentTimeMillis() - state.since))
+        is EngineState.Ready -> stringResource(com.fioiu8.dshpocket.R.string.settings_status_running, state.baseUrl, formatDuration(uptimeNow - state.since))
         is EngineState.Busy -> stringResource(com.fioiu8.dshpocket.R.string.settings_status_starting, state.message)
         is EngineState.Failed -> stringResource(com.fioiu8.dshpocket.R.string.settings_status_failed, state.message)
         EngineState.Idle -> stringResource(com.fioiu8.dshpocket.R.string.settings_status_stopped)
@@ -494,7 +513,7 @@ fun CapabilityCard(capabilities: CapabilitySnapshot, onGrantAllFiles: () -> Unit
     ) {
         Column(Modifier.padding(vertical = 8.dp)) {
             CapabilityRow(
-                title = "所有文件访问",
+                title = stringResource(com.fioiu8.dshpocket.R.string.settings_all_files),
                 supporting = stringResource(com.fioiu8.dshpocket.R.string.settings_all_files_supporting),
                 capabilityState = capabilities.allFiles,
                 actionLabel = stringResource(com.fioiu8.dshpocket.R.string.capability_grant),
