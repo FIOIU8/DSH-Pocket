@@ -131,6 +131,7 @@
     <string name="plugins_change_restart">Applied — restart the engine to finish applying it.</string>
     <string name="plugins_change_cancelled">Cancelled — files were restored.</string>
     <string name="plugins_change_failed">Failed (%1$s)</string>
+
     <string name="settings_backup_section">Backup and restore</string>
     <string name="backup_export">Export engine data</string>
     <string name="backup_export_supporting">Sessions and engine settings as a .zip; credentials are excluded. Stop the engine first for a consistent copy.</string>
@@ -145,14 +146,17 @@
     <string name="backup_failed">Operation failed: %1$s</string>
     <string name="backup_restore_confirm_title">Restore and replace engine data?</string>
     <string name="backup_restore_confirm_body">The current sessions and engine settings are replaced by the archive contents. This cannot be undone. The engine must be stopped; API keys are not restored and have to be entered again.</string>
+
     <string name="notify_channel_turns">Turn updates</string>
     <string name="notify_channel_turns_desc">Notifies when an agent turn finishes running</string>
     <string name="notify_turn_title">Turn finished</string>
     <string name="notify_turn_body">%1$s stopped running</string>
     <string name="notify_turn_untitled">A session</string>
 
-
-
+    <string name="nav_terminal">Terminal</string>
+    <string name="terminal_supporting">Shell into the engine environment</string>
+    <string name="terminal_exited">The shell exited.</string>
+    <string name="terminal_restart">Start a new shell</string>
 
     <string name="settings_intro">Local core and app preferences, organized by purpose</string>
     <string name="settings_engine">Engine</string>

@@ -28,6 +28,12 @@ dependencyResolutionManagement {
         }
         google()
         mavenCentral()
+        // Termux terminal-emulator/view (PTY 终端用)：JitPack 按 GitHub tag 构建。
+        maven("https://jitpack.io") {
+            content {
+                includeGroup("com.github.termux.termux-app")
+            }
+        }
     }
 }
 

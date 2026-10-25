@@ -51,6 +51,7 @@ import androidx.compose.material.icons.filled.Forum
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DrawerValue
@@ -157,6 +158,7 @@ enum class Destination(@param:StringRes val labelRes: Int, val icon: ImageVector
     Sessions(com.fioiu8.dshpocket.R.string.nav_sessions, Icons.Filled.Folder),
     Plugins(com.fioiu8.dshpocket.R.string.nav_plugins, Icons.Filled.Extension),
     Models(com.fioiu8.dshpocket.R.string.nav_models, Icons.Filled.Tune),
+    Terminal(com.fioiu8.dshpocket.R.string.nav_terminal, Icons.Filled.Terminal),
     Settings(com.fioiu8.dshpocket.R.string.nav_settings, Icons.Filled.Settings),
 }
 
@@ -552,6 +554,8 @@ fun AppShell(
 
             Destination.Models -> ModelsScreen(state = state, onMenu = openDrawer, modelRepository = modelRepository)
 
+            Destination.Terminal -> TerminalScreen(onMenu = openDrawer)
+
             Destination.Settings -> {
                 val section = navigationTarget.second?.let { SettingsSection.fromKey(it) }
                 if (section == null) {
@@ -579,6 +583,7 @@ fun AppShell(
                         onBack = { settingsSection = null },
                         onOpenModels = { destination = Destination.Models; settingsSection = null },
                         onOpenPlugins = { destination = Destination.Plugins; settingsSection = null },
+                        onOpenTerminal = { destination = Destination.Terminal; settingsSection = null },
                         onGrantAllFiles = { context.startActivity(Capabilities.allFilesAccessIntent(context)) },
                         onRestart = {
                             webLoaded = false

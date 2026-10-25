@@ -97,6 +97,9 @@ dependencies {
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.webkit)
     implementation(libs.okhttp)
+    // 真 PTY 终端：Termux 的终端模拟与视图（Apache-2.0，JitPack）。
+    implementation(libs.termux.terminal.emulator)
+    implementation(libs.termux.terminal.view)
     implementation(libs.commonmark)
     testImplementation(libs.junit)
     testImplementation(libs.json)

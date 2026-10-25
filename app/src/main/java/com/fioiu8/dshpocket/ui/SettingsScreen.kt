@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.DataUsage
 import androidx.compose.material.icons.filled.AutoAwesome
@@ -166,6 +167,7 @@ fun SettingsDetailScreen(
     onBack: () -> Unit,
     onOpenModels: () -> Unit,
     onOpenPlugins: () -> Unit,
+    onOpenTerminal: () -> Unit,
     onGrantAllFiles: () -> Unit,
     onRestart: () -> Unit,
     onStop: () -> Unit,
@@ -228,6 +230,7 @@ fun SettingsDetailScreen(
                         items = listOf(
                             { SectionRow(stringResource(com.fioiu8.dshpocket.R.string.nav_models), stringResource(com.fioiu8.dshpocket.R.string.home_models_supporting), Icons.Filled.Tune, onOpenModels) },
                             { SectionRow(stringResource(com.fioiu8.dshpocket.R.string.nav_plugins), stringResource(com.fioiu8.dshpocket.R.string.home_plugins_supporting), Icons.Filled.Extension, onOpenPlugins) },
+                            { SectionRow(stringResource(com.fioiu8.dshpocket.R.string.nav_terminal), stringResource(com.fioiu8.dshpocket.R.string.terminal_supporting), Icons.Filled.Terminal, onOpenTerminal) },
                         ),
                     )
                     SectionHeader(stringResource(com.fioiu8.dshpocket.R.string.settings_device_capabilities))

@@ -13,6 +13,7 @@ commonmark = "0.24.0"
 coroutines = "1.11.0"
 kotlin = "2.2.10"
 composeBom = "2026.02.01"
+termuxTerminal = "v0.118.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -37,6 +38,8 @@ androidx-compose-ui-test-junit4 = { group = "androidx.compose.ui", name = "ui-te
 androidx-compose-material3 = { group = "androidx.compose.material3", name = "material3" }
 androidx-compose-material-icons-core = { group = "androidx.compose.material", name = "material-icons-core" }
 androidx-compose-material-icons-extended = { group = "androidx.compose.material", name = "material-icons-extended" }
+termux-terminal-emulator = { group = "com.github.termux.termux-app", name = "terminal-emulator", version.ref = "termuxTerminal" }
+termux-terminal-view = { group = "com.github.termux.termux-app", name = "terminal-view", version.ref = "termuxTerminal" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
