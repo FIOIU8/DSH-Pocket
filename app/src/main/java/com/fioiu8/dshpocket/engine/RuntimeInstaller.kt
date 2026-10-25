@@ -146,8 +146,27 @@ object RuntimeInstaller {
         null
     }
 
-    private fun markerHeader(context: Context): String =
-        "runtime-format=3 abi=$BUNDLED_ABI app-version=${appVersion(context)}"
+    /**
+     * Identity of the packaged zip: uncompressed size plus CRC-32, both read from the
+     * APK's central directory. The marker keys off this so rebuilding `runtime.zip` at an
+     * unchanged app version still forces a re-extract — without it the engine keeps
+     * running the previously unpacked copy and engine patches look like no-ops.
+     * @returns the stamp, or null when the APK layout defeats the lookup.
+     */
+    private fun assetStamp(context: Context): String? = try {
+        ZipFile(context.applicationInfo.sourceDir).use { apk ->
+            apk.getEntry("assets/$ASSET")?.let { entry ->
+                if (entry.size <= 0 || entry.crc < 0) null else "${entry.size}-${entry.crc}"
+            }
+        }
+    } catch (_: Throwable) {
+        null
+    }
+
+    private fun markerHeader(context: Context): String {
+        val stamp = assetStamp(context)?.let { " asset=$it" } ?: ""
+        return "runtime-format=3 abi=$BUNDLED_ABI app-version=${appVersion(context)}$stamp"
+    }
 
     private fun ripgrepBinary(root: File): File {
         val nodeArch = when (runtimeArch) {
