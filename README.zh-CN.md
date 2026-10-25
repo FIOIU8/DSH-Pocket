@@ -21,9 +21,12 @@
 - 在 Android 本机运行 DSH Node.js Agent 引擎；引擎由前台服务管理。
 - 可在原生对话界面与 DSH 官方 Web 界面之间切换；支持流式回复、浏览会话、归档与恢复。
 - 配置模型服务商、查看已安装插件，并管理运行时及能力设置。
+- AI 操作屏幕：读屏、点击、滑动、输入与截屏（截图直接随工具结果返回给模型，无需读取文件）；每次操作都有跑马灯提示，依次经过确定性规则、审查模型与原生确认弹窗的裁决，通知栏可随时紧急停止；缺权限时 AI 可弹窗引导你一键跳转授权页。
+- 思维链悬浮窗：仅在你离开应用期间显示 AI 的思考过程，触摸可穿透，AI 操作屏幕时自动隐藏（AI 的截图与读屏都不会看到它）。
+- 回合结束通知；退出后重新打开会回到上次的界面与对话。
 - 可选授予所有文件访问权限，让 Agent 在共享存储的 `DSHPocket` 工作区内读写文件；默认使用应用私有工作区。
 
-引擎及其网页界面通过本机回环地址 `127.0.0.1` 通信。发送给用户配置的模型服务时，对话内容及相关上下文可能离开设备。Agent 可访问的文件范围取决于应用获得的 Android 权限和当前工作区。
+引擎及其网页界面通过本机回环地址 `127.0.0.1` 通信。发送给用户配置的模型服务商时，对话内容及相关上下文可能离开设备；AI 读屏与截图的内容同样会发送给所配置的服务商。Agent 可访问的文件范围取决于应用获得的 Android 权限和当前工作区。
 
 ## 主要依赖
 
@@ -35,6 +38,7 @@
 | AndroidX Lifecycle Runtime KTX | 2.11.0 | Apache-2.0 | [AndroidX](https://github.com/androidx/androidx)，Google Maven |
 | AndroidX WebKit | 1.14.0 | Apache-2.0 | [AndroidX](https://github.com/androidx/androidx)，Google Maven |
 | `@deepseek-ai/dsh` 及其 npm 依赖树 | CI：0.2.0-rc.2；发布版：由工作流选择 | MIT 及其他上游许可证 | [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)，[npm](https://www.npmjs.com/package/@deepseek-ai/dsh) |
+| `@img/sharp-wasm32`（sharp 的 WebAssembly libvips） | 与随包 sharp 版本一致 | Apache-2.0 AND LGPL-3.0-or-later AND MIT | [sharp](https://github.com/lovell/sharp)，[npm](https://www.npmjs.com/package/@img/sharp-wasm32) |
 | Node.js LTS（`nodejs-lts`） | 构建时从 Termux 索引解析 | MIT | [Termux 配方](https://github.com/termux/termux-packages/blob/master/packages/nodejs-lts/build.sh) |
 | C++ 运行时（`libc++`）和 OpenSSL | 构建时从 Termux 索引解析 | NCSA；Apache-2.0 | [Termux 软件包](https://github.com/termux/termux-packages) |
 | ICU（`libicu`）和 Mozilla CA 证书 | 构建时从 Termux 索引解析 | ICU 自定义许可证；MPL-2.0 | [Termux 软件包](https://github.com/termux/termux-packages)，[ICU 许可证](https://github.com/unicode-org/icu/blob/main/LICENSE) |
@@ -84,4 +88,4 @@ Debug APK 输出到 `app/build/outputs/apk/debug/app-debug.apk`。正式 Release
 
 ## 许可证
 
-本项目自有源代码和资源采用 MIT 许可证，详见 [`LICENSE`](LICENSE)。APK 中打包的第三方组件仍适用各自许可证和声明；运行时包含 MPL-2.0 组件。运行时归档会保留上游包提供的许可证文件；当前清单及已发现的打包问题见 [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md)。项目 MIT 许可证不会替代或重新授权第三方组件。DSH 名称及其他第三方商标也不由本项目许可证授予。
+本项目自有源代码和资源采用 MIT 许可证，详见 [`LICENSE`](LICENSE)。APK 中打包的第三方组件仍适用各自许可证和声明；运行时包含 MPL-2.0 组件，其 WebAssembly 图像解码器（`@img/sharp-wasm32`）包含 LGPL-3.0-or-later 组件。运行时归档会保留上游包提供的许可证文件；当前清单及已发现的打包问题见 [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md)。项目 MIT 许可证不会替代或重新授权第三方组件。DSH 名称及其他第三方商标也不由本项目许可证授予。

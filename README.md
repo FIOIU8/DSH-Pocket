@@ -21,9 +21,12 @@
 - Run the DSH Node.js agent engine locally on Android; the engine is managed by a foreground service.
 - Switch between the native chat interface and the official DSH web interface; supports streaming responses, session browsing, archiving, and restoring.
 - Configure model providers, inspect installed plugins, and manage runtime and capability settings.
+- AI screen control: read, tap, swipe, type and screenshot the physical screen (screenshots return to the model inline with the tool result). Every operation shows a marquee border and passes deterministic rules, a review model and a native confirmation dialog; a notification emergency stop is always one tap away. When a prerequisite is missing, the AI can pop a dialog that walks you to the system authorization page.
+- Chain-of-thought overlay: a touch-through floating card shows the AI's reasoning while you are outside the app, hiding itself during screen operations so the AI's own screenshots and screen reads never include it.
+- Turn-finished notifications, and reopening the app restores the last screen and conversation.
 - Optionally grant all-files access so the agent can read and write files in the shared `DSHPocket` workspace; the app-private workspace is used by default.
 
-The engine and its web UI communicate over `127.0.0.1`. Prompts and related context may leave the device when sent to the model provider configured by the user. Filesystem access depends on the Android capability granted to the app and the selected workspace.
+The engine and its web UI communicate over `127.0.0.1`. Prompts and related context may leave the device when sent to the model provider configured by the user; content the AI reads or captures from the screen goes to that provider as well. Filesystem access depends on the Android capability granted to the app and the selected workspace.
 
 ## Main dependencies
 
@@ -35,6 +38,7 @@ The engine and its web UI communicate over `127.0.0.1`. Prompts and related cont
 | AndroidX Lifecycle Runtime KTX | 2.11.0 | Apache-2.0 | [AndroidX](https://github.com/androidx/androidx), Google Maven |
 | AndroidX WebKit | 1.14.0 | Apache-2.0 | [AndroidX](https://github.com/androidx/androidx), Google Maven |
 | `@deepseek-ai/dsh` and its npm dependency tree | CI: 0.2.0-rc.2; release: selected by workflow | MIT and other upstream licenses | [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness), [npm](https://www.npmjs.com/package/@deepseek-ai/dsh) |
+| `@img/sharp-wasm32` (WebAssembly libvips for sharp) | Pinned to the bundled sharp version | Apache-2.0 AND LGPL-3.0-or-later AND MIT | [sharp](https://github.com/lovell/sharp), [npm](https://www.npmjs.com/package/@img/sharp-wasm32) |
 | Node.js LTS (`nodejs-lts`) | Resolved from Termux index at build time | MIT | [Termux recipe](https://github.com/termux/termux-packages/blob/master/packages/nodejs-lts/build.sh) |
 | C++ runtime (`libc++`) and OpenSSL | Resolved from Termux index at build time | NCSA; Apache-2.0 | [Termux packages](https://github.com/termux/termux-packages) |
 | ICU (`libicu`) and Mozilla CA certificates | Resolved from Termux index at build time | Custom ICU license; MPL-2.0 | [Termux packages](https://github.com/termux/termux-packages), [ICU license](https://github.com/unicode-org/icu/blob/main/LICENSE) |
@@ -84,4 +88,4 @@ The debug APK is written to `app/build/outputs/apk/debug/app-debug.apk`. Release
 
 ## License
 
-Project-owned source code and assets are licensed under the MIT License; see [`LICENSE`](LICENSE). Third-party components bundled in the APK keep their own licenses and notices. In particular, the runtime includes MPL-2.0 components. The runtime archive retains upstream license files where the package provides them; see [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md) for the current inventory and known packaging warnings. The MIT license does not replace or relicense third-party components. The DSH name and other third-party marks are not granted by this project license.
+Project-owned source code and assets are licensed under the MIT License; see [`LICENSE`](LICENSE). Third-party components bundled in the APK keep their own licenses and notices. In particular, the runtime includes MPL-2.0 components, and its WebAssembly image decoder (`@img/sharp-wasm32`) includes LGPL-3.0-or-later components. The runtime archive retains upstream license files where the package provides them; see [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md) for the current inventory and known packaging warnings. The MIT license does not replace or relicense third-party components. The DSH name and other third-party marks are not granted by this project license.
