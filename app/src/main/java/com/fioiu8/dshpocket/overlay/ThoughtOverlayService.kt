@@ -25,12 +25,13 @@ import kotlinx.coroutines.launch
  * Shows the AI's chain of thought as a touch-through overlay while a turn runs
  * (user request, 2026-10-25).
  *
- * Visibility rule: the card is up while the assistant turn is active AND no screen
- * operation is in flight. Every screen op (read, screenshot, tap, …) runs inside the
- * marquee pulse, so hiding on [ScreenControlManager.screenOpsActive] removes the card
- * before the first pixel is captured or the first node is read — the AI never sees its
- * own thoughts, neither in screenshots nor in the accessibility tree (a detached view
- * contributes no nodes).
+ * Visibility rule: the card is up while the assistant turn is active AND the app's
+ * own UI is NOT in the foreground (inside the app the chat screen already shows the
+ * thinking card) AND no screen operation is in flight. Every screen op (read,
+ * screenshot, tap, …) runs inside the marquee pulse, so hiding on
+ * [ScreenControlManager.screenOpsActive] removes the card before the first pixel is
+ * captured or the first node is read — the AI never sees its own thoughts, neither in
+ * screenshots nor in the accessibility tree (a detached view contributes no nodes).
  *
  * Not a foreground service: the app process is already held alive by EngineService for
  * as long as the engine runs, which is exactly this service's lifetime.
@@ -66,8 +67,12 @@ class ThoughtOverlayService : Service() {
         super.onCreate()
         val opsActive = ScreenControlManager.peek()?.screenOpsActive ?: MutableStateFlow(false)
         scope.launch {
-            combine(ThoughtStreamBus.state, opsActive) { thought, ops -> thought to ops }
-                .collect { (thought, ops) -> render(thought, ops) }
+            combine(
+                ThoughtStreamBus.state,
+                opsActive,
+                AppForegroundTracker.inForeground,
+            ) { thought, ops, appForeground -> Triple(thought, ops, appForeground) }
+                .collect { (thought, ops, appForeground) -> render(thought, ops, appForeground) }
         }
     }
 
@@ -77,10 +82,11 @@ class ThoughtOverlayService : Service() {
         super.onDestroy()
     }
 
-    private fun render(state: ThoughtState, opsActive: Boolean) {
+    private fun render(state: ThoughtState, opsActive: Boolean, appInForeground: Boolean) {
         val settings = ScreenControlManager.peek()?.settings
         val wanted = state.active &&
             !opsActive &&
+            !appInForeground &&
             settings?.thoughtOverlayEnabled == true &&
             Settings.canDrawOverlays(this)
         when {

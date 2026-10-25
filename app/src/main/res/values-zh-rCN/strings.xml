@@ -62,7 +62,7 @@
     <string name="sc_ask_always">每次都询问</string>
     <string name="sc_ask_hint">「仅危险时询问」只在审查判定危险（或审查模型不可用）时弹出原生对话框；「每次都询问」对每次操作都要求确认。</string>
     <string name="sc_thought_overlay_title">思维链悬浮窗</string>
-    <string name="sc_thought_overlay_summary">回复期间以可穿透触摸的悬浮卡片显示 AI 的思考过程。AI 操作屏幕时卡片自动隐藏，截图与读屏都不会看到它。</string>
+    <string name="sc_thought_overlay_summary">回复期间以可穿透触摸的悬浮卡片显示 AI 的思考过程——仅在你离开本应用时显示（应用内的对话页已有思考卡片）。AI 操作屏幕时卡片自动隐藏，截图与读屏都不会看到它。</string>
     <string name="sc_section_deny">拒绝名单</string>
     <string name="sc_deny_row">拒绝名单（%1$d 个包名）</string>
     <string name="sc_deny_supporting">前台应用命中名单即拒绝一切操作（读屏除外）</string>

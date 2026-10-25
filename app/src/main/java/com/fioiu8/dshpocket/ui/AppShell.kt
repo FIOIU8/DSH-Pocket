@@ -315,6 +315,23 @@ fun AppShell(
     }
 
     val openDrawer: () -> Unit = { scope.launch { drawerState.open() } }
+
+    // The thought overlay only shows OUTSIDE the app; the chat screen already has the
+    // thinking card. Started/stopped (not paused/resumed) so translucent overlays —
+    // the gate and permission dialogs — do not count as "leaving the app".
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                androidx.lifecycle.Lifecycle.Event.ON_START ->
+                    com.fioiu8.dshpocket.overlay.AppForegroundTracker.setForeground(true)
+                androidx.lifecycle.Lifecycle.Event.ON_STOP ->
+                    com.fioiu8.dshpocket.overlay.AppForegroundTracker.setForeground(false)
+                else -> {}
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
     // Resolved in composable scope and captured: stringResource cannot be called from
     // the evaluateJavascript callback, and LocalContext there would not recompose.
     val labelChatEmptyResponse = stringResource(com.fioiu8.dshpocket.R.string.chat_empty_response)

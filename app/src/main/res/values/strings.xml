@@ -375,7 +375,7 @@
     <string name="sc_ask_always">Always ask</string>
     <string name="sc_ask_hint">"Ask on danger" pops the native dialog only when the review flags an operation (or the review model is unavailable). "Always ask" confirms every operation.</string>
     <string name="sc_thought_overlay_title">Chain-of-thought overlay</string>
-    <string name="sc_thought_overlay_summary">Shows the AI\'s reasoning in a touch-through floating card while it answers. The card hides itself during AI screen operations, so screenshots and screen reads never include it.</string>
+    <string name="sc_thought_overlay_summary">Shows the AI\'s reasoning in a touch-through floating card while it answers — only while you are outside this app; inside, the chat already shows the thinking card. The card hides itself during AI screen operations, so screenshots and screen reads never include it.</string>
     <string name="sc_section_deny">Deny list</string>
     <string name="sc_deny_row">Deny list (%1$d packages)</string>
     <string name="sc_deny_supporting">Operations on a foreground app in this list are refused outright (reading excepted)</string>
