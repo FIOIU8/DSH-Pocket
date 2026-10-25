@@ -115,8 +115,25 @@
     <string name="plugins_installed">Installed plugins</string>
     <string name="plugins_load_failed">Failed to load plugins</string>
     <string name="plugins_empty">No manageable plugins</string>
-    <string name="plugins_note">Installing and removing plugins will require downloading packages and will be added in a later version. You can enable or disable bundled plugins here; changes take effect immediately.</string>
+    <string name="plugins_note">Installing or removing a package downloads it through the engine\'s package manager; an install can take a few minutes and can be cancelled while running. Enable or disable plugins below; changes take effect immediately.</string>
     <string name="plugins_read_only">%1$s - read-only (%2$s)</string>
+    <string name="plugins_bundles">Plugin packages</string>
+    <string name="plugins_install_title">Install a plugin</string>
+    <string name="plugins_install_supporting">npm package name, git or archive URL</string>
+    <string name="plugins_install_hint">e.g. @scope/dsh-plugin or https://…</string>
+    <string name="plugins_install_action">Install</string>
+    <string name="plugins_spec_required">Enter a package name or URL first</string>
+    <string name="plugins_remove">Remove</string>
+    <string name="plugins_remove_confirm_title">Remove %1$s?</string>
+    <string name="plugins_remove_confirm_body">The package and the plugins it carries are removed from the engine. Packages the installation ships cannot be removed.</string>
+    <string name="plugins_dismiss">Dismiss</string>
+    <string name="plugins_change_applied">Applied — the change is live.</string>
+    <string name="plugins_change_restart">Applied — restart the engine to finish applying it.</string>
+    <string name="plugins_change_cancelled">Cancelled — files were restored.</string>
+    <string name="plugins_change_failed">Failed (%1$s)</string>
+
+
+
 
     <string name="settings_intro">Local core and app preferences, organized by purpose</string>
     <string name="settings_engine">Engine</string>

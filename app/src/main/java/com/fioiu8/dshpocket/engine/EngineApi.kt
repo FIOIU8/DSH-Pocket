@@ -46,6 +46,15 @@ object EngineApi {
         data class Err(val code: String, val message: String) : RpcResult
     }
 
+    /** Default response budget for engine RPCs. */
+    const val DEFAULT_READ_TIMEOUT_MS: Int = 20_000
+
+    /**
+     * Response budget for package operations (`pluginManager/installBundle` /
+     * `removeBundle`): a pnpm run over the network can legitimately take minutes.
+     */
+    const val PACKAGE_READ_TIMEOUT_MS: Int = 10 * 60_000
+
     /**
      * Calls `endpoint` with `args` against the engine at [baseUrl].
      *
@@ -62,12 +71,13 @@ object EngineApi {
         endpoint: String,
         args: JSONObject,
         launchToken: String? = null,
+        readTimeoutMillis: Int = DEFAULT_READ_TIMEOUT_MS,
     ): RpcResult = withContext(Dispatchers.IO) {
         try {
-            var response = exchange(baseUrl, endpoint, args)
+            var response = exchange(baseUrl, endpoint, args, readTimeoutMillis)
             if (response.status == 401 && !launchToken.isNullOrBlank()) {
                 if (SessionCookie.establish(baseUrl, launchToken)) {
-                    response = exchange(baseUrl, endpoint, args)
+                    response = exchange(baseUrl, endpoint, args, readTimeoutMillis)
                 }
             }
             parse(response)
@@ -78,7 +88,7 @@ object EngineApi {
 
     private class RawResponse(val status: Int, val body: String)
 
-    private fun exchange(baseUrl: String, endpoint: String, args: JSONObject): RawResponse {
+    private fun exchange(baseUrl: String, endpoint: String, args: JSONObject, readTimeoutMillis: Int): RawResponse {
         val envelope = JSONObject()
             .put("type", "client-request")
             .put("rpcId", "native-${System.nanoTime()}")
@@ -87,7 +97,7 @@ object EngineApi {
         val connection = (URL("$baseUrl/api/$endpoint").openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
             connectTimeout = 5_000
-            readTimeout = 20_000
+            readTimeout = readTimeoutMillis
             doOutput = true
             setRequestProperty("Content-Type", "application/json")
             // SameSite=Strict cookie minted for this exact authority; the loopback Host

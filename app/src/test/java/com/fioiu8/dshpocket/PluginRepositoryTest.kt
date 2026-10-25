@@ -1,6 +1,7 @@
 package com.fioiu8.dshpocket
 
 import com.fioiu8.dshpocket.engine.EngineApi.RpcResult
+import com.fioiu8.dshpocket.ui.state.PluginChange
 import com.fioiu8.dshpocket.ui.state.PluginParser
 import com.fioiu8.dshpocket.ui.state.PluginRepository
 import com.fioiu8.dshpocket.ui.state.PluginSource
@@ -25,14 +26,38 @@ class PluginRepositoryTest {
     private class FakeSource : PluginSource {
         var listResult: RpcResult = RpcResult.Ok(JSONArray())
         var toggleResult: RpcResult = RpcResult.Ok(JSONObject())
+        var bundlesResult: RpcResult = RpcResult.Ok(JSONArray())
+        var installResult: RpcResult = RpcResult.Ok(JSONObject().put("application", "applied"))
+        var removeResult: RpcResult = RpcResult.Ok(JSONObject().put("application", "applied"))
+        var cancelResult: RpcResult = RpcResult.Ok(JSONObject())
 
         val toggleCalls = mutableListOf<Pair<String, Boolean>>()
+        val installCalls = mutableListOf<Pair<String, String>>()
+        val removeCalls = mutableListOf<String>()
+        val cancelCalls = mutableListOf<String>()
 
         override suspend fun listPlugins(): RpcResult = listResult
 
         override suspend fun setPluginEnabled(id: String, enabled: Boolean): RpcResult {
             toggleCalls += id to enabled
             return toggleResult
+        }
+
+        override suspend fun listBundles(): RpcResult = bundlesResult
+
+        override suspend fun installBundle(spec: String, requestId: String): RpcResult {
+            installCalls += spec to requestId
+            return installResult
+        }
+
+        override suspend fun cancelInstall(requestId: String): RpcResult {
+            cancelCalls += requestId
+            return cancelResult
+        }
+
+        override suspend fun removeBundle(name: String): RpcResult {
+            removeCalls += name
+            return removeResult
         }
     }
 
@@ -42,6 +67,21 @@ class PluginRepositoryTest {
             .put("moduleName", "plugins/$id")
             .put("meta", JSONObject().apply { title?.let { put("title", it) }; description?.let { put("description", it) } })
             .put("enabled", enabled)
+
+    private fun bundle(
+        name: String,
+        installed: Boolean,
+        removable: Boolean = installed,
+        readOnlyReason: String? = null,
+        version: String = "1.0.0",
+    ) = JSONObject()
+        .put("name", name)
+        .put("version", version)
+        .put("enabled", true)
+        .put("installed", installed)
+        .put("optional", false)
+        .put("removable", removable)
+        .apply { readOnlyReason?.let { put("readOnlyReason", it) } }
 
     // ---- repository ------------------------------------------------------------------------
 
@@ -131,6 +171,152 @@ class PluginRepositoryTest {
         assertEquals(0, source.toggleCalls.size)
     }
 
+    // ---- install / remove -------------------------------------------------------------------
+
+    @Test
+    fun `a successful install reports Applied and reloads the lists`() = runTest {
+        val source = FakeSource().apply {
+            bundlesResult = RpcResult.Ok(JSONArray().put(bundle("user-plugin", installed = true)))
+        }
+        val repository = PluginRepository.createForTest { source }
+
+        repository.install("@scope/dsh-plugin")
+
+        assertEquals(listOf("@scope/dsh-plugin" to source.installCalls.single().second), source.installCalls)
+        assertEquals("pocket-", source.installCalls.single().second.take("pocket-".length))
+        assertEquals(PluginChange.Applied, repository.state.value.lastChange)
+        assertNull("the busy action is cleared once the round-trip ends", repository.state.value.action)
+        assertEquals("the reload after the change picked up the new bundle", 1, repository.state.value.bundles?.size)
+    }
+
+    @Test
+    fun `an engine-reported failure carries the code and diagnostic`() = runTest {
+        val source = FakeSource().apply {
+            installResult = RpcResult.Ok(
+                JSONObject()
+                    .put("application", "failed")
+                    .put("stage", "install")
+                    .put("error", JSONObject().put("code", "invalid-spec").put("diagnostic", "not a package")),
+            )
+        }
+        val repository = PluginRepository.createForTest { source }
+
+        repository.install("nonsense")
+
+        assertEquals(PluginChange.Failed("invalid-spec", "not a package"), repository.state.value.lastChange)
+    }
+
+    @Test
+    fun `restart-required and cancelled outcomes map to their own messages`() = runTest {
+        val restartRepo = PluginRepository.createForTest {
+            FakeSource().apply { installResult = RpcResult.Ok(JSONObject().put("application", "restart-required")) }
+        }
+        restartRepo.install("p")
+
+        val cancelledRepo = PluginRepository.createForTest {
+            FakeSource().apply { installResult = RpcResult.Ok(JSONObject().put("application", "cancelled")) }
+        }
+        cancelledRepo.install("p")
+
+        assertEquals(PluginChange.RestartRequired, restartRepo.state.value.lastChange)
+        assertEquals(PluginChange.Cancelled, cancelledRepo.state.value.lastChange)
+    }
+
+    @Test
+    fun `a transport failure maps to a Failed change, not an exception`() = runTest {
+        val source = FakeSource().apply { installResult = RpcResult.Err("transport", "connection refused") }
+        val repository = PluginRepository.createForTest { source }
+
+        repository.install("@scope/whatever")
+
+        assertEquals(PluginChange.Failed("transport", "connection refused"), repository.state.value.lastChange)
+    }
+
+    @Test
+    fun `an unknown application value is a protocol failure, never a success`() = runTest {
+        val source = FakeSource().apply { installResult = RpcResult.Ok(JSONObject().put("application", "something-new")) }
+        val repository = PluginRepository.createForTest { source }
+
+        repository.install("@scope/whatever")
+
+        assertEquals(PluginChange.Failed("protocol", null)::class, repository.state.value.lastChange!!::class)
+    }
+
+    @Test
+    fun `cancel addresses the same request id the install sent`() = runTest {
+        val source = FakeSource()
+        val repository = PluginRepository.createForTest { source }
+        // Simulate the screen: the id comes from the in-flight action in state.
+        val requestId = "pocket-test"
+        repository.cancelInstall(requestId)
+
+        assertEquals(listOf("pocket-test"), source.cancelCalls)
+    }
+
+    @Test
+    fun `remove sends the package name and reports the outcome`() = runTest {
+        val source = FakeSource().apply { removeResult = RpcResult.Ok(JSONObject().put("application", "applied")) }
+        val repository = PluginRepository.createForTest { source }
+
+        repository.remove("user-plugin")
+
+        assertEquals(listOf("user-plugin"), source.removeCalls)
+        assertEquals(PluginChange.Applied, repository.state.value.lastChange)
+        assertNull(repository.state.value.action)
+    }
+
+    @Test
+    fun `dismissChange clears the banner without touching the lists`() = runTest {
+        val source = FakeSource().apply {
+            listResult = RpcResult.Ok(JSONArray().put(plugin("canvas", "画布")))
+        }
+        val repository = PluginRepository.createForTest { source }
+        repository.install("@scope/p")
+
+        repository.dismissChange()
+
+        assertNull(repository.state.value.lastChange)
+        assertEquals("the plugin list is untouched", 1, repository.state.value.rows?.size)
+    }
+
+    // ---- bundles ----------------------------------------------------------------------------
+
+    @Test
+    fun `a successful reload publishes bundles too`() = runTest {
+        val source = FakeSource().apply {
+            bundlesResult = RpcResult.Ok(
+                JSONArray()
+                    .put(bundle("user-plugin", installed = true, removable = true))
+                    .put(bundle("@deepseek-ai/dsh-builtin", installed = false, removable = false, readOnlyReason = "management-required")),
+            )
+        }
+        val repository = PluginRepository.createForTest { source }
+
+        repository.reload()
+
+        val bundles = repository.state.value.bundles
+        assertEquals(2, bundles?.size)
+        assertEquals(true, bundles?.first()?.removable)
+        assertEquals("management-required", bundles?.last()?.readOnlyReason)
+    }
+
+    @Test
+    fun `a failed bundle list keeps the previous bundles and leaves rows alone`() = runTest {
+        val source = FakeSource().apply {
+            listResult = RpcResult.Ok(JSONArray().put(plugin("canvas", "画布")))
+            bundlesResult = RpcResult.Ok(JSONArray().put(bundle("user-plugin", installed = true)))
+        }
+        val repository = PluginRepository.createForTest { source }
+        repository.reload()
+
+        source.bundlesResult = RpcResult.Err("http/500", "bundles failed")
+        source.listResult = RpcResult.Err("http/500", "rows failed")
+        repository.reload()
+
+        assertEquals("last good bundle list survives", 1, repository.state.value.bundles?.size)
+        assertEquals("the failed plugin list set its own error", "http/500: rows failed", repository.state.value.error)
+    }
+
     // ---- parser ----------------------------------------------------------------------------
 
     @Test
@@ -185,5 +371,55 @@ class PluginRepositoryTest {
 
         assertEquals("core plugin", rows[0].readOnlyReason)
         assertNull(rows[1].readOnlyReason)
+    }
+
+    @Test
+    fun `bundles parse removable and version, blank names dropped`() {
+        val items = JSONArray()
+            .put(bundle("user-plugin", installed = true))
+            .put(JSONObject().put("name", ""))
+            .put(
+                JSONObject()
+                    .put("name", "locked-plugin")
+                    .put("enabled", false)
+                    .put("installed", false)
+                    .put("removable", false),
+            )
+
+        val bundles = PluginParser.bundles(items)
+
+        assertEquals(2, bundles.size)
+        assertEquals("user-plugin", bundles[0].name)
+        assertEquals("1.0.0", bundles[0].version)
+        assertEquals(false, bundles[1].removable)
+        assertNull(bundles[1].version)
+    }
+
+    @Test
+    fun `bundle sort puts removable first then title, and missing removable means removable`() {
+        val items = JSONArray()
+            .put(
+                JSONObject()
+                    .put("name", "z-locked")
+                    .put("enabled", true)
+                    .put("installed", true)
+                    .put("removable", false)
+                    .put("meta", JSONObject().put("title", JSONObject().put("zh-CN", "甲").put("en", "one"))),
+            )
+            .put(bundle("b-removable", installed = true))
+            .put(
+                JSONObject()
+                    .put("name", "a-legacy")
+                    .put("enabled", true)
+                    .put("installed", true),
+            )
+
+        val bundles = PluginParser.bundles(items)
+
+        assertEquals(
+            listOf("a-legacy", "b-removable", "z-locked"),
+            PluginParser.sortedBundles(bundles, "en-US").map { it.name },
+        )
+        assertEquals("z-locked", PluginParser.sortedBundles(bundles, "en-US").last().name)
     }
 }

@@ -42,6 +42,38 @@ object PluginParser {
     /** The shipped sort key: the localized title, case-insensitively. */
     fun sortedByTitle(rows: List<PluginRow>, localeTag: String): List<PluginRow> =
         rows.sortedBy { titleFor(it, localeTag).lowercase() }
+
+    /** One package as `pluginManager/listBundles` reports it. */
+    fun bundles(items: JSONArray): List<PluginBundle> = buildList {
+        for (i in 0 until items.length()) {
+            val item = items.optJSONObject(i) ?: continue
+            val name = item.optString("name")
+            if (name.isBlank()) continue
+            add(
+                PluginBundle(
+                    name = name,
+                    version = item.optString("version").takeIf { it.isNotBlank() },
+                    title = item.optJSONObject("meta")?.opt("title")?.let { LocalizedText(it) },
+                    description = item.optString("description").takeIf { it.isNotBlank() },
+                    enabled = item.optBoolean("enabled"),
+                    // No field means removable; only an explicit false locks it.
+                    removable = item.optBoolean("removable", true),
+                    readOnlyReason = item.optString("readOnlyReason").takeIf { it.isNotBlank() },
+                ),
+            )
+        }
+    }
+
+    /** Removable first, then by localized title, case-insensitively. */
+    fun sortedBundles(bundles: List<PluginBundle>, localeTag: String): List<PluginBundle> =
+        bundles.sortedWith(
+            compareByDescending<PluginBundle> { it.removable }
+                .thenBy { (localized(it.title?.value, localeTag) ?: it.name).lowercase() },
+        )
+
+    /** The bundle's display title: localized meta if present, else the package name. */
+    fun bundleTitle(bundle: PluginBundle, localeTag: String): String =
+        localized(bundle.title?.value, localeTag) ?: bundle.name
 }
 
 /**
