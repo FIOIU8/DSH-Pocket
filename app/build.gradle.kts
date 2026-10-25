@@ -101,6 +101,8 @@ dependencies {
     implementation(libs.termux.terminal.emulator)
     implementation(libs.termux.terminal.view)
     implementation(libs.commonmark)
+    implementation(libs.commonmark.ext.gfm.tables)
+    implementation(libs.commonmark.ext.gfm.strikethrough)
     testImplementation(libs.junit)
     testImplementation(libs.json)
     testImplementation(libs.kotlinx.coroutines.test)
