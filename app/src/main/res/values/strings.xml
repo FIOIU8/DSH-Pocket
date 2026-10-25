@@ -340,6 +340,10 @@
     <string name="screen_control_channel_desc">Shown while the AI is operating the screen, with an emergency stop</string>
     <string name="thought_overlay_thinking">AI thinking</string>
     <string name="thought_overlay_answering">AI responding</string>
+    <string name="turn_done_title">AI finished its answer</string>
+    <string name="turn_done_hint">Tap below to jump back and read it</string>
+    <string name="turn_done_return">Back to DSH Pocket</string>
+    <string name="turn_done_dismiss">Dismiss</string>
     <string name="perm_ask_title">AI requests permissions</string>
     <string name="perm_ask_reason">AI explains: %1$s</string>
     <string name="perm_ask_hint">Turn on a switch to jump to that permission\'s authorization page; the dialog closes itself once everything is granted.</string>

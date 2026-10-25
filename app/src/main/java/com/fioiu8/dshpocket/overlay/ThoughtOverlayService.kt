@@ -40,6 +40,7 @@ class ThoughtOverlayService : Service() {
 
     companion object {
         private const val TAG = "ThoughtOverlay"
+        private const val DONE_CARD_AUTO_HIDE_MS = 15_000L
 
         fun start(context: Context) {
             try {
@@ -60,6 +61,11 @@ class ThoughtOverlayService : Service() {
     private val mainHandler = Handler(Looper.getMainLooper())
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var view: ThoughtOverlayView? = null
+    private var doneView: TurnDoneView? = null
+    private var doneAutoHide: Runnable? = null
+
+    /** True while the observed turn is (or was just) running; the active->inactive edge is the "turn finished" event. */
+    private var wasActive = false
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -72,13 +78,29 @@ class ThoughtOverlayService : Service() {
                 opsActive,
                 AppForegroundTracker.inForeground,
             ) { thought, ops, appForeground -> Triple(thought, ops, appForeground) }
-                .collect { (thought, ops, appForeground) -> render(thought, ops, appForeground) }
+                .collect { (thought, ops, appForeground) ->
+                    if (thought.active) {
+                        wasActive = true
+                        hideDoneCard()
+                    }
+                    render(thought, ops, appForeground)
+                    if (!thought.active && wasActive) {
+                        wasActive = false
+                        // The user asked for this: away from the app when the turn ends
+                        // → a tappable card that jumps straight back in.
+                        if (!ops && !appForeground && Settings.canDrawOverlays(this@ThoughtOverlayService)) {
+                            showDoneCard()
+                        }
+                    }
+                    if (appForeground || ops) hideDoneCard()
+                }
         }
     }
 
     override fun onDestroy() {
         scope.cancel()
         detach()
+        hideDoneCard()
         super.onDestroy()
     }
 
@@ -117,6 +139,70 @@ class ThoughtOverlayService : Service() {
                 }
             }
             view = null
+        }
+    }
+
+    private fun showDoneCard() {
+        if (doneView != null) return
+        val card = TurnDoneView(this).apply {
+            onReturn = {
+                hideDoneCard()
+                try {
+                    startActivity(
+                        Intent(this@ThoughtOverlayService, com.fioiu8.dshpocket.MainActivity::class.java)
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                    )
+                } catch (_: Throwable) {
+                }
+            }
+            onDismiss = { hideDoneCard() }
+            render()
+        }
+        try {
+            getSystemService(WindowManager::class.java).addView(card, doneCardParams())
+            doneView = card
+            val autoHide = Runnable { hideDoneCard() }
+            doneAutoHide = autoHide
+            mainHandler.postDelayed(autoHide, DONE_CARD_AUTO_HIDE_MS)
+        } catch (t: Throwable) {
+            Log.w(TAG, "turn-done card attach failed", t)
+        }
+    }
+
+    private fun hideDoneCard() {
+        doneAutoHide?.let { mainHandler.removeCallbacks(it) }
+        doneAutoHide = null
+        mainHandler.post {
+            doneView?.let { card ->
+                try {
+                    getSystemService(WindowManager::class.java).removeView(card)
+                } catch (_: Throwable) {
+                }
+            }
+            doneView = null
+        }
+    }
+
+    /** Touchable (the buttons need clicks) but not focusable, and modal only over its own bounds. */
+    private fun doneCardParams(): WindowManager.LayoutParams {
+        val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+        } else {
+            @Suppress("DEPRECATION")
+            WindowManager.LayoutParams.TYPE_PHONE
+        }
+        val metrics = resources.displayMetrics
+        return WindowManager.LayoutParams(
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            type,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+            PixelFormat.TRANSLUCENT,
+        ).apply {
+            width = (metrics.widthPixels * 0.86f).toInt()
+            gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+            y = (metrics.density * 72f).toInt()
         }
     }
 
