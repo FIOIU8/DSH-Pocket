@@ -60,11 +60,13 @@ Android 库通过 Google Maven（配置中优先使用阿里云 Google Maven 镜
 ```powershell
 python tools/collect_runtime.py fetch --arch x86_64 --work .runtime-work
 npm init -y --prefix .runtime-work/bundle
-npm install --prefix .runtime-work/bundle --omit=dev --ignore-scripts --no-audit --no-fund @deepseek-ai/dsh@0.2.0-rc.2
+npm install --prefix .runtime-work/bundle --omit=dev --ignore-scripts --no-audit --no-fund @deepseek-ai/dsh@0.2.0-rc.2 @img/sharp-wasm32@0.35.5
 python tools/collect_runtime.py pack --arch x86_64 --work .runtime-work --out .runtime-work/runtime-x86_64.zip
 Copy-Item .runtime-work/runtime-x86_64.zip app/src/main/assets/runtime.zip
 python tools/generate_third_party_notices.py app/src/main/assets/runtime.zip --output THIRD-PARTY-NOTICES.md
 ```
+
+`@img/sharp-wasm32` 是运行时唯一的图像解码器：Android 没有 sharp 的原生预编译，sharp 的加载器会回退到这个 WebAssembly 构建。它的版本必须与 `@deepseek-ai/dsh` 解析出的 `sharp` 版本一致（`node -p "require('./.runtime-work/bundle/node_modules/sharp/package.json').version"`）。缺失时 `collect_runtime.py pack` 会直接报错终止。
 
 如需本地构建 arm64，请将运行时命令中的 `x86_64` 改为 `aarch64`，并在下方构建命令中使用 `-PruntimeArch=aarch64`。如需与某个正式发布版本对应，应安装该发布选中的 DSH 版本并重新生成第三方清单。
 

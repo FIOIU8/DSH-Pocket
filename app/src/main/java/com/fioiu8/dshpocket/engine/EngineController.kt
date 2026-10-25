@@ -5,6 +5,7 @@ import android.os.Build
 import android.util.Log
 import com.fioiu8.dshpocket.capability.AgentBriefing
 import com.fioiu8.dshpocket.capability.Capabilities
+import com.fioiu8.dshpocket.screen.ScreenControlManager
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
@@ -168,6 +169,12 @@ class EngineController(private val context: Application) {
         _state.value = EngineState.Idle
     }
 
+    /**
+     * Current engine run id. Screen-control "allow for this session" decisions are keyed
+     * on it: a stop/start (which always bumps the generation) invalidates them.
+     */
+    fun generationValue(): Long = generation.get()
+
     fun dispose() {
         stop()
         scope.cancel()
@@ -182,9 +189,19 @@ class EngineController(private val context: Application) {
     fun refreshBriefing(snapshot: com.fioiu8.dshpocket.capability.CapabilitySnapshot) {
         if (_state.value !is EngineState.Ready) return
         scope.launch {
-            runCatching { AgentBriefing.write(EnginePaths.dshHome(context), snapshot) }
+            runCatching { AgentBriefing.write(EnginePaths.dshHome(context), snapshot, screenControlFacts()) }
                 .onFailure { Log.w(TAG, "briefing refresh failed", it) }
         }
+    }
+
+    /** Gathers the screen-control facts the briefing block renders. */
+    private fun screenControlFacts(): AgentBriefing.ScreenControlFacts {
+        val manager = ScreenControlManager.get(context)
+        return AgentBriefing.ScreenControlFacts(
+            enabled = manager.settings.enabled,
+            accessibilityReady = com.fioiu8.dshpocket.screen.PocketAccessibilityService.peek() != null,
+            overlayGranted = android.provider.Settings.canDrawOverlays(context),
+        )
     }
 
     private suspend fun boot(runId: Long) {
@@ -234,10 +251,11 @@ class EngineController(private val context: Application) {
         dshHome.mkdirs()
         workspace.mkdirs()
         val nativeChatSuggestionsModule = EnginePaths.installNativeChatSuggestionsTool(context, root)
+        val screenControlModule = EnginePaths.installScreenControlTool(context, root)
         // Point the engine's default workspace at a directory Android actually has.
-        EnginePaths.writeHomePatch(dshHome, workspace, nativeChatSuggestionsModule)
+        EnginePaths.writeHomePatch(dshHome, workspace, nativeChatSuggestionsModule, screenControlModule)
         // Brief the agent on its current capabilities (loaded from $DSH_HOME/AGENTS.md).
-        AgentBriefing.write(dshHome, capabilities)
+        AgentBriefing.write(dshHome, capabilities, screenControlFacts())
 
         val command = EnginePaths.command(root)
         appendLog("$ ${command.joinToString(" ")}")
@@ -248,6 +266,7 @@ class EngineController(private val context: Application) {
         // The invoking directory is the fallback workspace root for sessions without one.
         pb.directory(workspace)
         pb.environment().putAll(EnginePaths.environment(root, dshHome))
+        pb.environment().putAll(ScreenControlManager.get(context).bridgeEnvironment())
         pb.redirectErrorStream(false)
 
         awaitPreviousEngineExit()

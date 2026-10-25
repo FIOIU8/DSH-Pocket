@@ -93,6 +93,11 @@ jobs:
           npm install --prefix .runtime-work/bundle \
             --omit=dev --ignore-scripts --no-audit --no-fund \
             @deepseek-ai/dsh@0.2.0-rc.2
+          # WebAssembly sharp: Android has no native prebuilt; the version must
+          # track the sharp version the dsh install resolved to.
+          npm install --prefix .runtime-work/bundle \
+            --omit=dev --ignore-scripts --no-audit --no-fund \
+            @img/sharp-wasm32@0.35.5
           python tools/collect_runtime.py pack \
             --arch aarch64 \
             --work .runtime-work \

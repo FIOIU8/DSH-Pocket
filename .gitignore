@@ -33,3 +33,6 @@ __pycache__/
 *.jks
 # WorkBuddy agent workspace (memory logs, task state) - local only.
 /.workbuddy/
+
+# P0 spike scratch: adb scripts, screenshots and a local bridge token dump
+/.spike/

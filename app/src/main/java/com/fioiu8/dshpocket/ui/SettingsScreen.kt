@@ -22,6 +22,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Block
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Info
@@ -32,6 +34,7 @@ import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.DataUsage
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.TouchApp
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -42,6 +45,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
@@ -97,6 +101,7 @@ enum class SettingsSection(
 ) {
     Engine("engine", com.fioiu8.dshpocket.R.string.settings_engine, com.fioiu8.dshpocket.R.string.settings_engine_supporting, Icons.Filled.Memory),
     Core("core", com.fioiu8.dshpocket.R.string.settings_core, com.fioiu8.dshpocket.R.string.settings_core_supporting, Icons.Filled.Tune),
+    ScreenControl("screen_control", com.fioiu8.dshpocket.R.string.settings_screen_control, com.fioiu8.dshpocket.R.string.settings_screen_control_supporting, Icons.Filled.TouchApp),
     Runtime("runtime", com.fioiu8.dshpocket.R.string.settings_runtime, com.fioiu8.dshpocket.R.string.settings_runtime_supporting, Icons.Filled.Folder),
     General("general", com.fioiu8.dshpocket.R.string.settings_general, com.fioiu8.dshpocket.R.string.settings_general_supporting, Icons.Filled.Info),
     ;
@@ -168,9 +173,11 @@ fun SettingsDetailScreen(
     onOpenModels: () -> Unit,
     onOpenPlugins: () -> Unit,
     onOpenTerminal: () -> Unit,
+    onOpenScreenControl: () -> Unit,
     onGrantAllFiles: () -> Unit,
     onRestart: () -> Unit,
     onStop: () -> Unit,
+    onScreenControlChanged: () -> Unit,
     language: AppLanguage,
     onLanguageChange: (AppLanguage) -> Unit,
 ) {
@@ -231,12 +238,14 @@ fun SettingsDetailScreen(
                             { SectionRow(stringResource(com.fioiu8.dshpocket.R.string.nav_models), stringResource(com.fioiu8.dshpocket.R.string.home_models_supporting), Icons.Filled.Tune, onOpenModels) },
                             { SectionRow(stringResource(com.fioiu8.dshpocket.R.string.nav_plugins), stringResource(com.fioiu8.dshpocket.R.string.home_plugins_supporting), Icons.Filled.Extension, onOpenPlugins) },
                             { SectionRow(stringResource(com.fioiu8.dshpocket.R.string.nav_terminal), stringResource(com.fioiu8.dshpocket.R.string.terminal_supporting), Icons.Filled.Terminal, onOpenTerminal) },
+                            { SectionRow(stringResource(com.fioiu8.dshpocket.R.string.settings_screen_control), stringResource(com.fioiu8.dshpocket.R.string.settings_screen_control_supporting), Icons.Filled.TouchApp, onOpenScreenControl) },
                         ),
                     )
                     SectionHeader(stringResource(com.fioiu8.dshpocket.R.string.settings_device_capabilities))
                     CapabilityCard(capabilities, onGrantAllFiles)
                     HelperText(stringResource(com.fioiu8.dshpocket.R.string.settings_engine_default_permission))
                 }
+                SettingsSection.ScreenControl -> ScreenControlSection(onChanged = onScreenControlChanged)
                 SettingsSection.Runtime -> {
                     SectionHeader(stringResource(com.fioiu8.dshpocket.R.string.settings_runtime_section))
                     GroupedList(
@@ -803,5 +812,338 @@ private fun BackupSection(state: EngineState) {
                 TextButton(onClick = { pendingRestore = null }) { Text(stringResource(com.fioiu8.dshpocket.R.string.cancel)) }
             },
         )
+    }
+}
+
+/**
+ * 设置 → AI 操作屏幕（plan §2.6）。Reads and writes [ScreenControlSettings] directly —
+ * the same UI-owned-prefs convention as the chat preferences. Any change invokes
+ * [onChanged] so the shell can refresh the agent briefing without an engine restart.
+ */
+@Composable
+private fun ScreenControlSection(onChanged: () -> Unit) {
+    val context = LocalContext.current
+    val settings = remember { com.fioiu8.dshpocket.screen.ScreenControlSettings(context) }
+    val audit = remember { com.fioiu8.dshpocket.screen.ScreenAuditLog(context) }
+    val scope = rememberCoroutineScope()
+
+    var enabled by remember { mutableStateOf(settings.enabled) }
+    var accessibilityReady by remember { mutableStateOf(com.fioiu8.dshpocket.screen.PocketAccessibilityService.peek() != null) }
+    var overlayGranted by remember { mutableStateOf(android.provider.Settings.canDrawOverlays(context)) }
+    var reviewEnabled by remember { mutableStateOf(settings.reviewEnabled) }
+    var askEveryTime by remember { mutableStateOf(settings.askEveryTime) }
+    var reviewBaseUrl by remember { mutableStateOf(settings.reviewBaseUrl) }
+    var reviewModel by remember { mutableStateOf(settings.reviewModel) }
+    var reviewKeyDraft by remember { mutableStateOf("") }
+    var reviewKeyConfigured by remember { mutableStateOf(settings.reviewApiKey.isNotEmpty()) }
+    var testing by remember { mutableStateOf(false) }
+    var testResult by remember { mutableStateOf<String?>(null) }
+    var denyDraft by remember { mutableStateOf<String?>(null) }
+    var auditEntries by remember { mutableStateOf(audit.entries()) }
+
+    SectionHeader(stringResource(com.fioiu8.dshpocket.R.string.sc_section_master))
+    GroupedList(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = DshSpacing.page),
+        items = listOf {
+            ListItem(
+                headlineContent = { Text(stringResource(com.fioiu8.dshpocket.R.string.settings_screen_control), fontWeight = FontWeight.SemiBold) },
+                supportingContent = { Text(stringResource(com.fioiu8.dshpocket.R.string.sc_master_supporting)) },
+                leadingContent = { Icon(Icons.Filled.TouchApp, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+                trailingContent = {
+                    Switch(
+                        checked = enabled,
+                        onCheckedChange = { checked ->
+                            enabled = checked
+                            settings.enabled = checked
+                            onChanged()
+                        },
+                    )
+                },
+                modifier = Modifier.heightIn(min = DshSpacing.touchTarget),
+            )
+        },
+    )
+
+    SectionHeader(stringResource(com.fioiu8.dshpocket.R.string.sc_section_prereq))
+    GroupedList(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = DshSpacing.page),
+        items = listOf(
+            {
+                PermissionGuideRow(
+                    title = stringResource(com.fioiu8.dshpocket.R.string.sc_accessibility_title),
+                    supporting = stringResource(com.fioiu8.dshpocket.R.string.sc_accessibility_supporting),
+                    granted = accessibilityReady,
+                    actionLabel = stringResource(com.fioiu8.dshpocket.R.string.capability_grant),
+                    onAction = { context.startActivity(android.content.Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS)) },
+                )
+            },
+            {
+                PermissionGuideRow(
+                    title = stringResource(com.fioiu8.dshpocket.R.string.sc_overlay_title),
+                    supporting = stringResource(com.fioiu8.dshpocket.R.string.sc_overlay_supporting),
+                    granted = overlayGranted,
+                    actionLabel = stringResource(com.fioiu8.dshpocket.R.string.capability_grant),
+                    onAction = {
+                        context.startActivity(
+                            android.content.Intent(
+                                android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                Uri.parse("package:${context.packageName}"),
+                            ),
+                        )
+                    },
+                )
+            },
+        ),
+    )
+    HelperText(stringResource(com.fioiu8.dshpocket.R.string.sc_prereq_hint))
+
+    SectionHeader(stringResource(com.fioiu8.dshpocket.R.string.sc_section_review))
+    GroupedList(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = DshSpacing.page),
+        items = listOf(
+            {
+                ListItem(
+                    headlineContent = { Text(stringResource(com.fioiu8.dshpocket.R.string.sc_review_switch)) },
+                    supportingContent = { Text(stringResource(com.fioiu8.dshpocket.R.string.sc_review_switch_supporting)) },
+                    trailingContent = {
+                        Switch(
+                            checked = reviewEnabled,
+                            onCheckedChange = { checked ->
+                                reviewEnabled = checked
+                                settings.reviewEnabled = checked
+                                onChanged()
+                            },
+                        )
+                    },
+                    modifier = Modifier.heightIn(min = DshSpacing.touchTarget),
+                )
+            },
+            {
+                Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = DshSpacing.rowVertical)) {
+                    OutlinedTextField(
+                        value = reviewBaseUrl,
+                        onValueChange = { reviewBaseUrl = it },
+                        label = { Text(stringResource(com.fioiu8.dshpocket.R.string.sc_review_base_url)) },
+                        placeholder = { Text("https://api.example.com/v1") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    OutlinedTextField(
+                        value = reviewModel,
+                        onValueChange = { reviewModel = it },
+                        label = { Text(stringResource(com.fioiu8.dshpocket.R.string.sc_review_model)) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    )
+                    OutlinedTextField(
+                        value = reviewKeyDraft,
+                        onValueChange = { reviewKeyDraft = it },
+                        label = { Text(stringResource(com.fioiu8.dshpocket.R.string.models_api_key)) },
+                        supportingText = {
+                            Text(
+                                if (reviewKeyConfigured) {
+                                    stringResource(com.fioiu8.dshpocket.R.string.models_api_key_configured)
+                                } else {
+                                    stringResource(com.fioiu8.dshpocket.R.string.models_api_key_missing)
+                                },
+                            )
+                        },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    )
+                    Row(
+                        Modifier.fillMaxWidth().padding(top = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                    ) {
+                        OutlinedButton(
+                            enabled = !testing,
+                            onClick = {
+                                scope.launch {
+                                    testing = true
+                                    testResult = withContext(Dispatchers.IO) {
+                                        settings.reviewBaseUrl = reviewBaseUrl.trim()
+                                        settings.reviewModel = reviewModel.trim()
+                                        if (reviewKeyDraft.isNotBlank()) {
+                                            settings.reviewApiKey = reviewKeyDraft
+                                            reviewKeyConfigured = true
+                                            reviewKeyDraft = ""
+                                        }
+                                        val verdict = com.fioiu8.dshpocket.screen.ScreenReviewClient(settings).review(
+                                            com.fioiu8.dshpocket.screen.ScreenOpRequest(
+                                                com.fioiu8.dshpocket.screen.ScreenAction.TAP,
+                                                "连接测试",
+                                                x = 100,
+                                                y = 100,
+                                            ),
+                                            "com.example.test",
+                                            null,
+                                        )
+                                        if (verdict.available) {
+                                            context.getString(com.fioiu8.dshpocket.R.string.sc_review_test_ok, verdict.dangerous.toString())
+                                        } else {
+                                            context.getString(com.fioiu8.dshpocket.R.string.sc_review_test_fail, verdict.reason)
+                                        }
+                                    }
+                                    testing = false
+                                }
+                            },
+                            modifier = Modifier.dshControl(),
+                        ) {
+                            Text(if (testing) stringResource(com.fioiu8.dshpocket.R.string.sc_review_testing) else stringResource(com.fioiu8.dshpocket.R.string.sc_review_test))
+                        }
+                    }
+                    testResult?.let { HelperText(it) }
+                }
+            },
+        ),
+    )
+
+    SectionHeader(stringResource(com.fioiu8.dshpocket.R.string.sc_section_gate))
+    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal = DshSpacing.page)) {
+        val modes = listOf(
+            stringResource(com.fioiu8.dshpocket.R.string.sc_ask_danger),
+            stringResource(com.fioiu8.dshpocket.R.string.sc_ask_always),
+        )
+        modes.forEachIndexed { index, label ->
+            SegmentedButton(
+                selected = askEveryTime == (index == 1),
+                onClick = {
+                    askEveryTime = index == 1
+                    settings.askEveryTime = index == 1
+                    onChanged()
+                },
+                shape = SegmentedButtonDefaults.itemShape(index, modes.size),
+                modifier = Modifier.heightIn(min = DshSpacing.controlHeight),
+            ) {
+                Text(label)
+            }
+        }
+    }
+    HelperText(stringResource(com.fioiu8.dshpocket.R.string.sc_ask_hint))
+
+    SectionHeader(stringResource(com.fioiu8.dshpocket.R.string.sc_section_deny))
+    GroupedList(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = DshSpacing.page),
+        items = listOf(
+            {
+                SectionRow(
+                    stringResource(com.fioiu8.dshpocket.R.string.sc_deny_row, settings.denyList().size),
+                    stringResource(com.fioiu8.dshpocket.R.string.sc_deny_supporting),
+                    Icons.Filled.Block,
+                    onClick = { denyDraft = settings.denyList().sorted().joinToString("\n") },
+                )
+            },
+        ),
+    )
+
+    SectionHeader(stringResource(com.fioiu8.dshpocket.R.string.sc_section_audit))
+    GroupedList(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = DshSpacing.page),
+        items = listOf(
+            {
+                SectionRow(
+                    stringResource(com.fioiu8.dshpocket.R.string.sc_audit_view, auditEntries.size),
+                    stringResource(com.fioiu8.dshpocket.R.string.sc_audit_supporting),
+                    Icons.Filled.Schedule,
+                    onClick = { auditEntries = audit.entries() },
+                )
+            },
+            {
+                SectionRow(
+                    stringResource(com.fioiu8.dshpocket.R.string.sc_audit_clear),
+                    stringResource(com.fioiu8.dshpocket.R.string.sc_audit_clear_supporting),
+                    Icons.Filled.Delete,
+                    onClick = {
+                        audit.clear()
+                        auditEntries = emptyList()
+                    },
+                )
+            },
+        ),
+    )
+    if (auditEntries.isNotEmpty()) {
+        Column(Modifier.padding(horizontal = DshSpacing.page)) {
+            auditEntries.take(8).forEach { entry ->
+                val time = SimpleDateFormat("MM-dd HH:mm:ss", Locale.getDefault()).format(Date(entry.timestamp))
+                Text(
+                    "$time · ${entry.action} · ${entry.outcome} · ${entry.reason.take(24)}" + (entry.message?.let { " · ${it.take(40)}" } ?: ""),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(vertical = 2.dp),
+                )
+            }
+        }
+    }
+
+    SectionHeader(stringResource(com.fioiu8.dshpocket.R.string.sc_section_disclosure))
+    listOf(
+        com.fioiu8.dshpocket.R.string.sc_disclosure_bridge,
+        com.fioiu8.dshpocket.R.string.sc_disclosure_review,
+        com.fioiu8.dshpocket.R.string.sc_disclosure_session,
+        com.fioiu8.dshpocket.R.string.sc_disclosure_audit,
+        com.fioiu8.dshpocket.R.string.sc_disclosure_marquee,
+    ).forEach { HelperText(stringResource(it)) }
+
+    denyDraft?.let { draft ->
+        AlertDialog(
+            onDismissRequest = { denyDraft = null },
+            title = { Text(stringResource(com.fioiu8.dshpocket.R.string.sc_deny_edit_title)) },
+            text = {
+                Column {
+                    OutlinedTextField(
+                        value = draft,
+                        onValueChange = { denyDraft = it },
+                        label = { Text(stringResource(com.fioiu8.dshpocket.R.string.sc_deny_hint)) },
+                        minLines = 6,
+                        maxLines = 12,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    TextButton(onClick = {
+                        denyDraft = com.fioiu8.dshpocket.screen.ScreenControlSettings.DEFAULT_DENY_LIST.sorted().joinToString("\n")
+                    }) {
+                        Text(stringResource(com.fioiu8.dshpocket.R.string.sc_deny_restore))
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val entries = draft.lines().map { it.trim() }.filter { it.isNotEmpty() }.toSet()
+                    settings.setDenyList(entries)
+                    denyDraft = null
+                }) { Text(stringResource(com.fioiu8.dshpocket.R.string.save)) }
+            },
+            dismissButton = { TextButton(onClick = { denyDraft = null }) { Text(stringResource(com.fioiu8.dshpocket.R.string.cancel)) } },
+        )
+    }
+}
+
+@Composable
+private fun PermissionGuideRow(
+    title: String,
+    supporting: String,
+    granted: Boolean,
+    actionLabel: String,
+    onAction: () -> Unit,
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .heightIn(min = DshSpacing.touchTarget)
+            .padding(horizontal = 16.dp, vertical = DshSpacing.rowVertical),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(title, style = MaterialTheme.typography.titleSmall)
+            Text(supporting, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                text = if (granted) stringResource(com.fioiu8.dshpocket.R.string.capability_granted) else stringResource(com.fioiu8.dshpocket.R.string.capability_available),
+                style = MaterialTheme.typography.labelMedium,
+                color = if (granted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.tertiary,
+            )
+        }
+        if (!granted) {
+            OutlinedButton(onClick = onAction, modifier = Modifier.dshControl()) { Text(actionLabel) }
+        }
     }
 }

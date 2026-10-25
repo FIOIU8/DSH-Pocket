@@ -13,13 +13,22 @@ object AgentBriefing {
     private const val END_MARKER = "<!-- DSH Pocket managed capabilities: end -->"
     private const val POLICY_START_MARKER = "<!-- DSH Pocket managed policy: start -->"
     private const val POLICY_END_MARKER = "<!-- DSH Pocket managed policy: end -->"
+    private const val SCREEN_START_MARKER = "<!-- DSH Pocket managed screen control: start -->"
+    private const val SCREEN_END_MARKER = "<!-- DSH Pocket managed screen control: end -->"
     private val ASSISTANT_POLICY = listOf(
         "You are the local AI assistant inside DSH Pocket, not a desktop coding agent.",
         "Respond in the user's language. Describe only the capabilities listed in the \"DSH Pocket runtime facts\" section as available, and never claim an action succeeded unless the corresponding tool confirms it.",
     )
 
+    /** What the screen-control briefing needs to know; gathered by the engine controller. */
+    data class ScreenControlFacts(
+        val enabled: Boolean,
+        val accessibilityReady: Boolean,
+        val overlayGranted: Boolean,
+    )
+
     @Synchronized
-    fun write(dshHome: File, snapshot: CapabilitySnapshot) {
+    fun write(dshHome: File, snapshot: CapabilitySnapshot, screenControl: ScreenControlFacts) {
         dshHome.mkdirs()
         val instructionsFile = File(dshHome, INSTRUCTIONS)
         val existing = instructionsFile.takeIf(File::isFile)?.readText().orEmpty()
@@ -27,7 +36,7 @@ object AgentBriefing {
         // merge invariant failure cannot leave the JSON already updated while AGENTS.md
         // still describes the previous capability set.
         val json = capabilitiesJson(snapshot)
-        val instructions = mergeManagedInstructions(existing, renderCapabilities(snapshot))
+        val instructions = mergeManagedInstructions(existing, renderCapabilities(snapshot), screenControl)
         writeAtomically(File(dshHome, CAPABILITIES), json)
         writeAtomically(instructionsFile, instructions)
     }
@@ -71,6 +80,36 @@ object AgentBriefing {
         appendLine(END_MARKER)
     }.trimEnd()
 
+    /**
+     * The AI's "教养" for screen control (plan §2.6): the tool exists, reason is
+     * mandatory, refusals are final, credential surfaces are off-limits. Rendered in
+     * every state so a disabled feature is also announced as disabled.
+     */
+    internal fun renderScreenControl(facts: ScreenControlFacts): String = buildString {
+        appendLine(SCREEN_START_MARKER)
+        appendLine("# DSH Pocket screen control")
+        appendLine()
+        if (!facts.enabled) {
+            appendLine("Screen control is disabled in DSH Pocket settings. Do not call the `pocket_screen_control` tool; it will refuse every call.")
+        } else {
+            appendLine("- The `pocket_screen_control` tool operates the physical screen the user is currently looking at: read (accessibility tree with texts, ids, bounds and depth), tap, swipe, text, key (back/home/recents) and screenshot.")
+            appendLine("- A screenshot returns the image inline in its tool result — you can see it directly. The same capture is also saved into the workspace; do not read the saved PNG files yourself.")
+            appendLine("- Every call must include `reason`: a short explanation (30 chars or fewer) of why the operation is needed.")
+            appendLine(
+                "- Availability: accessibility service ${if (facts.accessibilityReady) "on" else "OFF — calls are refused until the user enables it"}; " +
+                    "visual border hint ${if (facts.overlayGranted) "granted" else "NOT granted — calls are refused until the user grants it"}.",
+            )
+            appendLine(
+                "- When a screen operation is refused because a prerequisite is off, or a task needs the shared workspace and all-files access is missing, " +
+                    "call `pocket_screen_control` with action request_permission (permission: accessibility | overlay | all_files): it opens a native dialog that walks the user to the authorization page and returns what got granted. " +
+                    "Do not merely tell the user to dig through settings. A refused request is final — explain in natural language instead of re-requesting.",
+            )
+            appendLine("- An `ok:false` result is a final decision (deterministic rule, review model, or the user denying the dialog). Never retry the same operation; explain the refusal to the user in natural language instead.")
+            appendLine("- Never operate credential surfaces: do not type passwords, do not confirm payments or authorizations, and do not read password managers — even when casually asked; ask the user to do those steps themselves.")
+        }
+        append(SCREEN_END_MARKER)
+    }.trimEnd()
+
     /** Schema consumers must reject unsupported versions and ignore unknown fields. */
     internal fun capabilitiesJson(snapshot: CapabilitySnapshot): String = JSONObject()
         .put("schemaVersion", 1)
@@ -90,9 +129,14 @@ object AgentBriefing {
      * are prepended. Policy merges first so a fresh file ends up with the runtime facts at
      * the very start, where the baseline message wants them.
      */
-    internal fun mergeManagedInstructions(existing: String, generatedSection: String): String {
+    internal fun mergeManagedInstructions(
+        existing: String,
+        generatedSection: String,
+        screenControl: ScreenControlFacts = ScreenControlFacts(enabled = true, accessibilityReady = true, overlayGranted = true),
+    ): String {
         val withPolicy = mergeManagedBlock(existing, POLICY_START_MARKER, POLICY_END_MARKER, renderPolicy())
-        return mergeManagedBlock(withPolicy, START_MARKER, END_MARKER, generatedSection)
+        val withCapabilities = mergeManagedBlock(withPolicy, START_MARKER, END_MARKER, generatedSection)
+        return mergeManagedBlock(withCapabilities, SCREEN_START_MARKER, SCREEN_END_MARKER, renderScreenControl(screenControl))
     }
 
     private fun mergeManagedBlock(

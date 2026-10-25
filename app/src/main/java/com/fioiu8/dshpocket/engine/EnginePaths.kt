@@ -18,7 +18,7 @@ object EnginePaths {
     const val PORT = 3080
 
     /** Marker written after a successful extraction; bump when the layout changes. */
-    const val INSTALL_MARKER = ".dsh-pocket-runtime-v3"
+    const val INSTALL_MARKER = ".dsh-pocket-runtime-v5"
 
     /** User-visible folder used once "all files access" is granted. */
     const val SHARED_WORKSPACE = "/storage/emulated/0/DSHPocket"
@@ -101,6 +101,16 @@ object EnginePaths {
         return module
     }
 
+    /** Same pattern as the chat-suggestions tool: an asset disguised as a node module. */
+    fun installScreenControlTool(context: Context, root: File): File {
+        val module = File(root, "lib/node_modules/@deepseek-ai/dsh-pocket-screen-control/index.mjs")
+        module.parentFile?.mkdirs()
+        context.assets.open("pocket-screen-control.mjs").use { input ->
+            module.outputStream().use(input::copyTo)
+        }
+        return module
+    }
+
     /**
      * Home-level patch layer (`$DSH_HOME/cordis.patch.yml`).
      *
@@ -110,7 +120,7 @@ object EnginePaths {
      * nowhere to work. Patches replace the target row's whole config, so this restates the
      * only field we set.
      */
-    fun writeHomePatch(dshHome: File, workspace: File, nativeChatSuggestionsModule: File) {
+    fun writeHomePatch(dshHome: File, workspace: File, nativeChatSuggestionsModule: File, screenControlModule: File) {
         dshHome.mkdirs()
         val yaml = buildString {
             appendLine("# Written by DSH Pocket on every boot; any manual edit is overwritten.")
@@ -123,6 +133,8 @@ object EnginePaths {
             appendLine("- insert:")
             appendLine("    - id: dsh-pocket-native-chat-suggestions")
             appendLine("      name: \"${yamlDoubleQuoted(nativeChatSuggestionsModule.toURI().toASCIIString())}\"")
+            appendLine("    - id: dsh-pocket-screen-control")
+            appendLine("      name: \"${yamlDoubleQuoted(screenControlModule.toURI().toASCIIString())}\"")
         }
         File(dshHome, "cordis.patch.yml").writeText(yaml)
     }

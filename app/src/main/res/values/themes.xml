@@ -2,4 +2,15 @@
 <resources>
 
     <style name="Theme.DSHPocket" parent="android:Theme.Material.Light.NoActionBar" />
+
+    <!-- The screen-control gate: a fully transparent window so the activity can draw a
+         Compose dialog over whatever the AI is about to touch. -->
+    <style name="Theme.DSHPocket.PermissionDialog" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowContentOverlay">@null</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:backgroundDimEnabled">false</item>
+        <item name="android:windowAnimationStyle">@null</item>
+    </style>
 </resources>

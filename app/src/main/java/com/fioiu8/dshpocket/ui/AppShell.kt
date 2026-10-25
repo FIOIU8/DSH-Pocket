@@ -202,8 +202,21 @@ fun AppShell(
     val scope = rememberCoroutineScope()
 
     val drawerState = rememberDrawerState(DrawerValue.Closed)
-    var destination by rememberSaveable { mutableStateOf(Destination.Home) }
-    var settingsSection by rememberSaveable { mutableStateOf<String?>(null) }
+    // The exit-restore rule (user-named): the background still running means the task is
+    // still wanted, so the last screen comes back from disk instead of resetting to Home.
+    val navigationMemory = remember { com.fioiu8.dshpocket.ui.state.NavigationMemory(context) }
+    var destination by rememberSaveable {
+        mutableStateOf(
+            navigationMemory.destinationName()
+                ?.let { stored -> Destination.entries.firstOrNull { it.name == stored } }
+                ?: Destination.Home,
+        )
+    }
+    var settingsSection by rememberSaveable { mutableStateOf(navigationMemory.settingsSection()) }
+    var restoredChatSessionId by remember { mutableStateOf(navigationMemory.chatSessionId()) }
+    LaunchedEffect(destination, settingsSection, restoredChatSessionId) {
+        navigationMemory.save(destination.name, settingsSection, restoredChatSessionId)
+    }
     var chatPresentation by remember {
         mutableStateOf(
             context.getSharedPreferences("ui_preferences", android.content.Context.MODE_PRIVATE)
@@ -248,19 +261,19 @@ fun AppShell(
     }
 
     // Turn-finished notifications. Keyed on engine state only: tab switches must not
-    // restart the loop (isChatVisible reads the live destination), and a non-Ready state
-    // stops it and forgets the running set.
+    // restart the loop, and a non-Ready state stops it and forgets the running set.
     LaunchedEffect(state) {
         val ready = state as? EngineState.Ready
         if (ready == null) {
             TurnNotifier.stop()
+            com.fioiu8.dshpocket.overlay.ThoughtOverlayService.stop(context)
         } else {
             TurnNotifier.watch(
                 controller.applicationScope,
                 context,
                 ready,
-                isChatVisible = { destination == Destination.Chat },
             )
+            com.fioiu8.dshpocket.overlay.ThoughtOverlayService.start(context)
         }
     }
 
@@ -492,6 +505,8 @@ fun AppShell(
                         preferences = nativeChatPreferences,
                         pendingOpenSessionId = pendingOpenSessionId,
                         onPendingSessionConsumed = { pendingOpenSessionId = null },
+                        initialSessionId = restoredChatSessionId,
+                        onSessionIdChanged = { restoredChatSessionId = it },
                     )
                 } else {
                     ChatScreen(
@@ -584,6 +599,8 @@ fun AppShell(
                         onOpenModels = { destination = Destination.Models; settingsSection = null },
                         onOpenPlugins = { destination = Destination.Plugins; settingsSection = null },
                         onOpenTerminal = { destination = Destination.Terminal; settingsSection = null },
+                        onOpenScreenControl = { settingsSection = SettingsSection.ScreenControl.key },
+                        onOpenScreenControl = { settingsSection = SettingsSection.ScreenControl.key },
                         onGrantAllFiles = { context.startActivity(Capabilities.allFilesAccessIntent(context)) },
                         onRestart = {
                             webLoaded = false
@@ -596,6 +613,16 @@ fun AppShell(
                             // quietly undo it.
                             controller.stop(byUser = true)
                             EngineService.stop(context)
+                        },
+                        onScreenControlChanged = {
+                            // Rewrites AGENTS.md's managed screen-control block so the
+                            // agent reads the new state on its next turn, no respawn.
+                            controller.refreshBriefing(capabilities)
+                        },
+                        onScreenControlChanged = {
+                            // Rewrites AGENTS.md's managed screen-control block so the
+                            // agent reads the new state on its next turn, no respawn.
+                            controller.refreshBriefing(capabilities)
                         },
                             language = language,
                             onLanguageChange = onLanguageChange,

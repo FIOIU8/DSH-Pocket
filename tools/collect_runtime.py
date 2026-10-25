@@ -351,7 +351,12 @@ def inject_ripgrep(nm: Path, arch: str, root: Path, log) -> None:
 
 
 def drop_host_platforms(nm: Path, log) -> None:
-    """npm resolved on Windows: remove every host-only artefact."""
+    """npm resolved on Windows: remove every host-only artefact.
+
+    `@img/sharp-wasm32` must survive: it is the only image decoder the runtime has
+    (Android has no native sharp prebuilt), which is why no pattern below matches it.
+    ensure_sharp_wasm() re-asserts its presence after pruning.
+    """
     import glob
     patterns = [
         "@vscode/ripgrep-win32-*", "@vscode/ripgrep-linux-*", "@img/sharp-win32-*",
@@ -366,6 +371,58 @@ def drop_host_platforms(nm: Path, log) -> None:
             shutil.rmtree(hit, ignore_errors=True)
             removed += 1
     log(f"pruned {removed} host-platform package(s)")
+
+
+def ensure_sharp_wasm(nm: Path, log) -> None:
+    """Fail the build when the WebAssembly sharp binding is missing.
+
+    sharp's loader falls back to `@img/sharp-wasm32` when no native prebuilt matches
+    (Android never does). Without it every image path on the device dies with
+    `Could not load the "sharp" module using the android-* runtime`. The package is not
+    a sharp optionalDependency — it must be installed explicitly alongside dsh (see
+    README "Prepare runtime") — and a silent omission would only surface on the device.
+    """
+    glue = nm / "@img" / "sharp-wasm32" / "index.cjs"
+    wasms = list((nm / "@img" / "sharp-wasm32" / "lib").glob("*.wasm")) if (nm / "@img" / "sharp-wasm32" / "lib").is_dir() else []
+    if not glue.is_file() or not wasms:
+        log("FATAL @img/sharp-wasm32 missing from the npm bundle — the runtime would have no image decoder")
+        raise SystemExit(1)
+    log(f"sharp wasm fallback present: {wasms[0].name} ({wasms[0].stat().st_size / 1e6:.1f} MB)")
+
+
+ELF_MACHINES = {62: "x86_64", 183: "aarch64", 40: "arm", 3: "x86"}
+
+
+def ensure_native_arch(root: Path, arch: str, log) -> None:
+    """Fail the build when the extracted Termux prefix is not the requested arch.
+
+    The work dir's `root/` is fully derived from the last `fetch`, and a fetch for a
+    different arch (say a local arm64 build after an x86_64 one) leaves the prefix
+    silently switched. Packing that with `--arch x86_64` produced a mixed-arch zip that
+    crashed on device inside the ARM translator with a bare SIGSEGV — nothing at pack
+    time caught it because the file layout looked perfectly normal.
+    """
+    expected = {"x86_64": 62, "aarch64": 183}[arch]
+    for rel in ("bin/node", "lib/libc++_shared.so"):
+        target = root / rel
+        if not target.is_file():
+            log(f"FATAL {rel} missing from the runtime root — run `fetch` first")
+            raise SystemExit(1)
+        with target.open("rb") as f:
+            head = f.read(20)
+        if head[:4] != b"\x7fELF":
+            log(f"FATAL {rel} is not an ELF file")
+            raise SystemExit(1)
+        machine = struct.unpack_from("<H", head, 18)[0]
+        if machine != expected:
+            found = ELF_MACHINES.get(machine, str(machine))
+            log(
+                f"FATAL {rel} is built for {found}, but --arch {arch} was requested. "
+                f"The work dir's root/ belongs to another architecture; delete <work>/root "
+                f"and re-run `fetch --arch {arch}`."
+            )
+            raise SystemExit(1)
+    log(f"native arch check passed ({arch})")
 
 
 def add_soname_aliases(root: Path, log) -> None:
@@ -413,6 +470,17 @@ def cmd_fetch(args) -> int:
     for d in (root, debs):
         d.mkdir(parents=True, exist_ok=True)
 
+    # A work dir reused across architectures carries a prefix extracted for the other
+    # arch; packing it with this arch ships a mixed-arch runtime (caught by
+    # ensure_native_arch, but wiping here is the actual fix). root/ is fully derived
+    # from the cached debs, so removing it costs only a re-extraction.
+    arch_stamp = work / "root-arch"
+    if arch_stamp.is_file() and arch_stamp.read_text("utf-8").strip() != args.arch:
+        previous = arch_stamp.read_text("utf-8").strip()
+        print(f"[fetch] arch changed ({previous} -> {args.arch}); wiping the stale root/")
+        shutil.rmtree(root, ignore_errors=True)
+        root.mkdir(parents=True, exist_ok=True)
+
     index_url = f"{REPO}/dists/stable/main/binary-{args.arch}/Packages"
     print(f"[fetch] index {index_url}")
     index = parse_index(fetch(index_url).decode("utf-8", "replace"))
@@ -426,7 +494,12 @@ def cmd_fetch(args) -> int:
     for name in CLOSURE:
         entry = index[name]
         filename = entry["Filename"]
-        dest = debs / Path(filename).name
+        # Debian epochs put a colon in the version (e.g. "1:2026.10.20-1"), which is
+        # not a legal Windows filename character: a naive path silently lands in an NTFS
+        # alternate data stream of a different file, and a later exists() check on the
+        # stream path reports the base file as cached. Sanitize before touching disk.
+        safe_name = Path(filename).name.replace(":", "+")
+        dest = debs / safe_name
         if not dest.exists():
             print(f"[fetch] {name:18} {entry['Version']:22} <- {filename}")
             fetch(f"{REPO}/{filename}", dest)
@@ -474,6 +547,7 @@ def cmd_fetch(args) -> int:
             absent.append(so)
     if absent:
         print(f"[fetch] WARNING unresolved: {absent} (may be provided by the system)")
+    arch_stamp.write_text(args.arch, "utf-8")
     return 0
 
 
@@ -508,6 +582,8 @@ def cmd_pack(args) -> int:
     patch_fs_local(nm, log)
     inject_ripgrep(nm, args.arch, root, log)
     drop_host_platforms(nm, log)
+    ensure_sharp_wasm(nm, log)
+    ensure_native_arch(root, args.arch, log)
     add_soname_aliases(root, log)
     write_wrappers(root, log)
 

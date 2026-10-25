@@ -60,11 +60,13 @@ The Node runtime collector currently downloads these Termux packages: `nodejs-lt
 ```powershell
 python tools/collect_runtime.py fetch --arch x86_64 --work .runtime-work
 npm init -y --prefix .runtime-work/bundle
-npm install --prefix .runtime-work/bundle --omit=dev --ignore-scripts --no-audit --no-fund @deepseek-ai/dsh@0.2.0-rc.2
+npm install --prefix .runtime-work/bundle --omit=dev --ignore-scripts --no-audit --no-fund @deepseek-ai/dsh@0.2.0-rc.2 @img/sharp-wasm32@0.35.5
 python tools/collect_runtime.py pack --arch x86_64 --work .runtime-work --out .runtime-work/runtime-x86_64.zip
 Copy-Item .runtime-work/runtime-x86_64.zip app/src/main/assets/runtime.zip
 python tools/generate_third_party_notices.py app/src/main/assets/runtime.zip --output THIRD-PARTY-NOTICES.md
 ```
+
+`@img/sharp-wasm32` provides the only image decoder the runtime has: Android has no native sharp prebuilt, and sharp's loader falls back to this WebAssembly build. Its version must match the `sharp` version that `@deepseek-ai/dsh` resolved to (`node -p "require('./.runtime-work/bundle/node_modules/sharp/package.json').version"`). `collect_runtime.py pack` fails the build when the package is missing.
 
 To build arm64 locally, replace `x86_64` with `aarch64` in the runtime commands and use `-PruntimeArch=aarch64` below. To match a release, install the DSH version selected for that release instead of the CI-pinned version, then regenerate the notices file.
 

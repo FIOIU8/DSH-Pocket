@@ -311,5 +311,84 @@
     <string name="models_remove_default_error">This removes the current default model. Switch the default model first.</string>
     <string name="models_authorized">Authorized</string><string name="models_waiting_login">Waiting for browser login</string><string name="models_unauthorized">Not authorized</string><string name="models_login_preparing">Preparing browser login...</string><string name="models_login_browser">Complete DeepSeek login in your browser.</string><string name="models_login_confirming">Confirming account authorization...</string><string name="models_login_failed">Authorization failed: %1$s</string><string name="models_login_expired">Authorization expired. Sign in again.</string><string name="models_login_hint">Use a DeepSeek web account; an API key is not required.</string><string name="models_start_login_failed">Failed to start DeepSeek web authorization</string><string name="models_browser_failed">Unable to open the system browser</string><string name="models_authorizing">Authorizing</string><string name="models_reauthorize">Reauthorize</string><string name="models_web_login">Web login authorization</string><string name="models_cancel_login_failed">Failed to cancel authorization</string><string name="models_signout_failed">Failed to sign out of DeepSeek Account</string><string name="models_sign_out">Sign out</string><string name="models_set_provider_key">Set API key for %1$s</string><string name="models_provider_key_hint">This writes credential %1$s; it can be used in Chat after saving.</string><string name="models_key_configured_hint">API key is configured. Enter a new key to replace it.</string><string name="models_key_enter_hint">Enter a DeepSeek API key to enable official models.</string><string name="models_service_id_error">Service ID is invalid or already exists.</string>
     <string name="close">Close</string><string name="paste_clipboard">Paste clipboard</string><string name="edit">Edit %1$s</string><string name="native_subtitle">Local assistant - DSHPocket</string><string name="models_builtin_prefix">Built-in: %1$s</string>
+
+    <string name="native_thought_for">Thought for %1$ss</string>
+    <string name="native_thought_done">Thought</string>
+    <string name="native_tool_read">Read file: %1$s</string>
+    <string name="native_tool_write">Write file: %1$s</string>
+    <string name="native_tool_edit">Edit file: %1$s</string>
+    <string name="native_tool_bash">Run command: %1$s</string>
+    <string name="native_tool_search">Search: %1$s</string>
+    <string name="native_tool_fetch">Fetch page: %1$s</string>
+    <string name="native_tool_screen_read">Computer Use — viewing the screen</string>
+    <string name="native_tool_screen_tap">Computer Use — tap (%1$s)</string>
+    <string name="native_tool_screen_swipe">Computer Use — swiping the screen</string>
+    <string name="native_tool_screen_text">Computer Use — typing text: %1$s</string>
+    <string name="native_tool_screen_key">Computer Use — key %1$s</string>
+    <string name="native_tool_screen_permission">Computer Use — request permission %1$s</string>
+    <string name="native_tool_todo">Update todo list</string>
+    <string name="native_tool_generic">Call %1$s</string>
     <string name="settings_bundled_abi">Bundled ABI</string><string name="settings_device_abi">Device ABI</string><string name="settings_node">Node</string><string name="settings_dsh">DSH</string><string name="settings_storage">Storage</string><string name="settings_path">Path</string><string name="settings_current">Current</string>
+
+    <string name="screen_accessibility_label">DSH Pocket screen control</string>
+    <string name="screen_accessibility_description">Lets the DSH agent read the screen and perform taps, swipes and text input on your behalf. Every operation is announced with an on-screen border and reviewed before it runs; turn this off any time to disable the capability.</string>
+    <string name="screen_control_badge">AI 正在操作屏幕</string>
+    <string name="screen_control_active_title">AI is operating the screen</string>
+    <string name="screen_control_active_text">Tap to stop AI screen operations</string>
+    <string name="screen_control_stop">Stop AI operations</string>
+    <string name="screen_control_channel_name">AI screen activity</string>
+    <string name="screen_control_channel_desc">Shown while the AI is operating the screen, with an emergency stop</string>
+    <string name="perm_ask_title">AI requests permissions</string>
+    <string name="perm_ask_reason">AI explains: %1$s</string>
+    <string name="perm_ask_hint">Turn on a switch to jump to that permission\'s authorization page; the dialog closes itself once everything is granted.</string>
+    <string name="perm_ask_cancel">Cancel</string>
+    <string name="perm_name_accessibility">Accessibility service</string>
+    <string name="perm_desc_accessibility">Required for reading the screen and performing taps, swipes and text input</string>
+    <string name="perm_name_overlay">Display over other apps</string>
+    <string name="perm_desc_overlay">Required for the on-screen hint shown during every AI operation</string>
+    <string name="perm_name_all_files">All files access</string>
+    <string name="perm_desc_all_files">Lets the agent read and write the shared DSHPocket workspace</string>
+
+    <string name="settings_screen_control">AI screen control</string>
+    <string name="settings_screen_control_supporting">Let the agent read and operate the screen, with review</string>
+    <string name="sc_section_master">Master switch</string>
+    <string name="sc_master_supporting">The agent can read the screen and perform taps, swipes, text input and screenshots. Every operation shows a marquee border and passes the adjudication pipeline.</string>
+    <string name="sc_section_prereq">Prerequisites</string>
+    <string name="sc_accessibility_title">Accessibility service</string>
+    <string name="sc_accessibility_supporting">Required for reading the screen and performing operations</string>
+    <string name="sc_overlay_title">Marquee overlay</string>
+    <string name="sc_overlay_supporting">Shows the colored border while the AI operates; without it every screen operation is refused</string>
+    <string name="sc_prereq_hint">Until both permissions are granted, all screen operations are refused with a clear reason.</string>
+    <string name="sc_section_review">Review model</string>
+    <string name="sc_review_switch">Enable model review</string>
+    <string name="sc_review_switch_supporting">Your own OpenAI-compatible endpoint judges whether an operation is dangerous; when off, every operation asks</string>
+    <string name="sc_review_base_url">Review service address</string>
+    <string name="sc_review_model">Review model ID</string>
+    <string name="sc_review_test">Test connection</string>
+    <string name="sc_review_testing">Testing…</string>
+    <string name="sc_review_test_ok">Connected (model replied dangerous=%1$s)</string>
+    <string name="sc_review_test_fail">Connection failed: %1$s</string>
+    <string name="sc_section_gate">Confirmation</string>
+    <string name="sc_ask_danger">Ask on danger</string>
+    <string name="sc_ask_always">Always ask</string>
+    <string name="sc_ask_hint">"Ask on danger" pops the native dialog only when the review flags an operation (or the review model is unavailable). "Always ask" confirms every operation.</string>
+    <string name="sc_thought_overlay_title">Chain-of-thought overlay</string>
+    <string name="sc_thought_overlay_summary">Shows the AI\'s reasoning in a touch-through floating card while it answers. The card hides itself during AI screen operations, so screenshots and screen reads never include it.</string>
+    <string name="sc_section_deny">Deny list</string>
+    <string name="sc_deny_row">Deny list (%1$d packages)</string>
+    <string name="sc_deny_supporting">Operations on a foreground app in this list are refused outright (reading excepted)</string>
+    <string name="sc_deny_edit_title">Edit deny list</string>
+    <string name="sc_deny_hint">One package name per line</string>
+    <string name="sc_deny_restore">Restore defaults</string>
+    <string name="sc_section_audit">Audit trail</string>
+    <string name="sc_audit_view">Recent records (%1$d)</string>
+    <string name="sc_audit_supporting">Every decision chain: rule, review and your answer</string>
+    <string name="sc_audit_clear">Clear audit trail</string>
+    <string name="sc_audit_clear_supporting">Deletes all locally stored records</string>
+    <string name="sc_section_disclosure">Honest disclosure</string>
+    <string name="sc_disclosure_bridge">The bridge listens on 127.0.0.1 only and checks a token injected into the engine. On rooted devices this protection is weaker.</string>
+    <string name="sc_disclosure_review">With model review on, the action, its reason and a short target-text summary are sent to the review service you configured — no other screen content leaves the device.</string>
+    <string name="sc_disclosure_session">"Allow for this session" covers every later operation of this engine run and dies with the engine restart. There is no permanent exemption.</string>
+    <string name="sc_disclosure_audit">The audit trail keeps the last 200 decisions on this device, unredacted, clearable any time.</string>
+    <string name="sc_disclosure_marquee">The marquee is a visual hint, not a security boundary; the notification\'s "stop" action is the emergency switch. System apps that hide overlays (e.g. Settings) also hide the border.</string>
 </resources>

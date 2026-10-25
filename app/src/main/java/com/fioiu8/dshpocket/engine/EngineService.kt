@@ -12,6 +12,7 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.fioiu8.dshpocket.R
+import com.fioiu8.dshpocket.screen.ScreenControlManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -72,6 +73,9 @@ class EngineService : Service() {
             controller.state.collectLatest { updateNotification(it) }
         }
         serviceScope.launch(Dispatchers.IO) { monitorHealth() }
+        // The screen-control bridge must be listening (and its token minted) before the
+        // engine process reads its environment — hence before controller.start().
+        ScreenControlManager.get(application).start()
         controller.start()
     }
 
@@ -85,6 +89,7 @@ class EngineService : Service() {
 
     override fun onDestroy() {
         serviceScope.cancel()
+        ScreenControlManager.get(application).stop()
         if (::controller.isInitialized) controller.stop()
         super.onDestroy()
     }

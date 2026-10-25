@@ -6,6 +6,8 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <!-- AI screen control: the marquee hint overlay (user grants via Settings). -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
     <queries>
         <package android:name="com.termux" />
@@ -42,6 +44,44 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="local_agent_engine" />
         </service>
+        <!-- AI screen control executor; enabled by the user in system settings. -->
+        <service
+            android:name=".screen.PocketAccessibilityService"
+            android:exported="false"
+            android:label="@string/screen_accessibility_label"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_service_config" />
+        </service>
+        <!-- Hosts the marquee overlay + emergency-stop notification while ops run. -->
+        <service
+            android:name=".screen.ScreenControlService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="ai_screen_control_feedback" />
+        </service>
+        <!-- Native gate for flagged screen operations; never a web surface. -->
+        <activity
+            android:name=".screen.PermissionDialogActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:taskAffinity=""
+            android:configChanges="orientation|screenSize|keyboardHidden"
+            android:theme="@style/Theme.DSHPocket.PermissionDialog" />
+        <!-- Native dialog for AI-initiated permission requests; same surface rules as the gate. -->
+        <activity
+            android:name=".screen.PermissionRequestActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:taskAffinity=""
+            android:configChanges="orientation|screenSize|keyboardHidden"
+            android:theme="@style/Theme.DSHPocket.PermissionDialog" />
     </application>
 
 </manifest>
