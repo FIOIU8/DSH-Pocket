@@ -22,6 +22,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.interaction.DragInteraction
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -503,22 +504,49 @@ fun NativeChatScreen(
     }
 
     // Follow the tail only while the user is actually reading it: a manual scroll up must
-    // survive polling updates and stream chunks. Programmatic scrolls land on the last
-    // item, which is what keeps the stickiness true.
+    // survive polling updates and stream chunks. Stickiness is only re-evaluated while the
+    // user themselves is dragging or flinging — programmatic scrolls (the load jump, the
+    // streaming pins) used to flip it off mid-flight and leave the list stuck in the middle.
     val stickToBottom = remember { mutableStateOf(true) }
     LaunchedEffect(listState) {
-        snapshotFlow { listState.isScrollInProgress }.collect { scrolling ->
-            if (!scrolling) return@collect
-            val info = listState.layoutInfo
-            val lastVisible = info.visibleItemsInfo.lastOrNull()?.index ?: -1
-            stickToBottom.value = lastVisible >= info.totalItemsCount - 2
+        var userScrolling = false
+        coroutineScope {
+            launch {
+                listState.interactionSource.interactions.collect { interaction ->
+                    if (interaction is DragInteraction.Start) userScrolling = true
+                }
+            }
+            snapshotFlow { listState.isScrollInProgress }.collect { scrolling ->
+                if (!scrolling) {
+                    userScrolling = false
+                    return@collect
+                }
+                if (!userScrolling) return@collect
+                val info = listState.layoutInfo
+                val lastVisible = info.visibleItemsInfo.lastOrNull()?.index ?: -1
+                stickToBottom.value = lastVisible >= info.totalItemsCount - 2
+            }
         }
     }
-    LaunchedEffect(sessionId) { stickToBottom.value = true }
+    // Opening a conversation must land on the newest message instantly; the flag is
+    // consumed by the first size change after the switch (the actual message load).
+    var jumpToBottomOnLoad by remember { mutableStateOf(true) }
+    LaunchedEffect(sessionId) {
+        stickToBottom.value = true
+        jumpToBottomOnLoad = true
+    }
 
     LaunchedEffect(visibleMessages.size, promptInFlight) {
         if (visibleMessages.isNotEmpty() && stickToBottom.value) {
-            listState.animateScrollToItem(visibleMessages.lastIndex)
+            if (jumpToBottomOnLoad) {
+                jumpToBottomOnLoad = false
+                // Instant jump with the bottom-pin offset: a plain scrollToItem aligns
+                // the item's TOP with the viewport, which leaves tall tail messages
+                // showing their beginning instead of the newest content.
+                listState.scrollToItem(visibleMessages.lastIndex, scrollOffset = 1_000_000)
+            } else {
+                listState.animateScrollToItem(visibleMessages.lastIndex)
+            }
         }
     }
     // Streaming grows the tail bubble in place; scrolling to the item would keep its top
