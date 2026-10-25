@@ -338,6 +338,8 @@
     <string name="screen_control_stop">Stop AI operations</string>
     <string name="screen_control_channel_name">AI screen activity</string>
     <string name="screen_control_channel_desc">Shown while the AI is operating the screen, with an emergency stop</string>
+    <string name="thought_overlay_thinking">AI thinking</string>
+    <string name="thought_overlay_answering">AI responding</string>
     <string name="perm_ask_title">AI requests permissions</string>
     <string name="perm_ask_reason">AI explains: %1$s</string>
     <string name="perm_ask_hint">Turn on a switch to jump to that permission\'s authorization page; the dialog closes itself once everything is granted.</string>

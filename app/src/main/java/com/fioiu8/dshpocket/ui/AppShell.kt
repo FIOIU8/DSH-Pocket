@@ -253,12 +253,14 @@ fun AppShell(
         val ready = state as? EngineState.Ready
         if (ready == null) {
             TurnNotifier.stop()
+            com.fioiu8.dshpocket.overlay.ThoughtOverlayService.stop(context)
         } else {
             TurnNotifier.watch(
                 controller.applicationScope,
                 context,
                 ready,
             )
+            com.fioiu8.dshpocket.overlay.ThoughtOverlayService.start(context)
         }
     }
 

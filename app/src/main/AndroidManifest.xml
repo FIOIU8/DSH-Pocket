@@ -66,6 +66,10 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="ai_screen_control_feedback" />
         </service>
+        <!-- Chain-of-thought overlay while a turn runs; hides during screen ops. -->
+        <service
+            android:name=".overlay.ThoughtOverlayService"
+            android:exported="false" />
         <!-- Native gate for flagged screen operations; never a web surface. -->
         <activity
             android:name=".screen.PermissionDialogActivity"

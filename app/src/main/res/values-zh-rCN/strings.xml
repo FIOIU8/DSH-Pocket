@@ -25,6 +25,8 @@
     <string name="screen_control_stop">停止 AI 操作</string>
     <string name="screen_control_channel_name">AI 屏幕活动</string>
     <string name="screen_control_channel_desc">AI 操作屏幕期间显示，并提供紧急停止按钮</string>
+    <string name="thought_overlay_thinking">AI 思考中</string>
+    <string name="thought_overlay_answering">AI 回复中</string>
     <string name="perm_ask_title">AI 请求授权</string>
     <string name="perm_ask_reason">AI 说明：%1$s</string>
     <string name="perm_ask_hint">打开开关会跳转到对应权限的授权页；全部开启后本弹窗会自动关闭。</string>

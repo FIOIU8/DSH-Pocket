@@ -832,6 +832,7 @@ private fun ScreenControlSection(onChanged: () -> Unit) {
     var overlayGranted by remember { mutableStateOf(android.provider.Settings.canDrawOverlays(context)) }
     var reviewEnabled by remember { mutableStateOf(settings.reviewEnabled) }
     var askEveryTime by remember { mutableStateOf(settings.askEveryTime) }
+    var thoughtOverlay by remember { mutableStateOf(settings.thoughtOverlayEnabled) }
     var reviewBaseUrl by remember { mutableStateOf(settings.reviewBaseUrl) }
     var reviewModel by remember { mutableStateOf(settings.reviewModel) }
     var reviewKeyDraft by remember { mutableStateOf("") }
@@ -1021,6 +1022,27 @@ private fun ScreenControlSection(onChanged: () -> Unit) {
         }
     }
     HelperText(stringResource(com.fioiu8.dshpocket.R.string.sc_ask_hint))
+
+    GroupedList(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = DshSpacing.page),
+        items = listOf {
+            ListItem(
+                headlineContent = { Text(stringResource(com.fioiu8.dshpocket.R.string.sc_thought_overlay_title)) },
+                supportingContent = { Text(stringResource(com.fioiu8.dshpocket.R.string.sc_thought_overlay_summary)) },
+                leadingContent = { Icon(Icons.Filled.AutoAwesome, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+                trailingContent = {
+                    Switch(
+                        checked = thoughtOverlay,
+                        onCheckedChange = { checked ->
+                            thoughtOverlay = checked
+                            settings.thoughtOverlayEnabled = checked
+                        },
+                    )
+                },
+                modifier = Modifier.heightIn(min = DshSpacing.touchTarget),
+            )
+        },
+    )
 
     SectionHeader(stringResource(com.fioiu8.dshpocket.R.string.sc_section_deny))
     GroupedList(

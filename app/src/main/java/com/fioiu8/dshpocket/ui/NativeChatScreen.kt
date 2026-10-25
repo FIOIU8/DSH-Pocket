@@ -95,6 +95,7 @@ import com.fioiu8.dshpocket.engine.EngineApi
 import com.fioiu8.dshpocket.engine.EngineApi.RpcResult
 import com.fioiu8.dshpocket.engine.EnginePaths
 import com.fioiu8.dshpocket.engine.EngineState
+import com.fioiu8.dshpocket.overlay.ThoughtStreamBus
 import com.fioiu8.dshpocket.ui.state.PromptOutcome
 import com.fioiu8.dshpocket.ui.state.NativeChatToolCallStore
 import com.fioiu8.dshpocket.ui.state.SessionRepository
@@ -376,6 +377,7 @@ fun NativeChatScreen(
                                 frame.optJSONObject("assistantStream")?.optJSONObject("activeAttempt")?.optJSONArray("stream"),
                             )
                             liveThinking = if (reasoning.isBlank()) null else LiveThinking(reasoning, System.currentTimeMillis())
+                            if (reasoning.isNotBlank()) ThoughtStreamBus.reasoningRestored(reasoning)
                         }
                         "event" -> {
                             val event = frame.optJSONObject("event") ?: return@collect
@@ -406,6 +408,7 @@ fun NativeChatScreen(
                                 "start" -> {
                                     liveAssistantText = ""
                                     liveThinking = LiveThinking("", System.currentTimeMillis())
+                                    ThoughtStreamBus.turnStarted()
                                 }
                                 "chunk" -> {
                                     val chunk = streamFrame.optJSONObject("chunk") ?: return@collect
@@ -413,6 +416,7 @@ fun NativeChatScreen(
                                         "reasoning-delta" -> {
                                             val current = liveThinking ?: LiveThinking("", System.currentTimeMillis())
                                             liveThinking = current.copy(text = current.text + chunk.optString("text"))
+                                            ThoughtStreamBus.reasoningDelta(chunk.optString("text"))
                                         }
                                         "text-delta" -> {
                                             // The answer has started; the thinking phase is over.
@@ -420,11 +424,13 @@ fun NativeChatScreen(
                                                 if (it.finishedAtMs == null) it.copy(finishedAtMs = System.currentTimeMillis()) else it
                                             }
                                             liveAssistantText += chunk.optString("text")
+                                            ThoughtStreamBus.answerStarted()
                                         }
                                         "tool-call-delta" -> {
                                             liveThinking = liveThinking?.let {
                                                 if (it.finishedAtMs == null) it.copy(finishedAtMs = System.currentTimeMillis()) else it
                                             }
+                                            ThoughtStreamBus.answerStarted()
                                         }
                                     }
                                 }
@@ -432,6 +438,7 @@ fun NativeChatScreen(
                                     refreshMessages(engine, id)
                                     liveAssistantText = ""
                                     liveThinking = null
+                                    ThoughtStreamBus.turnEnded()
                                     loadSessions(engine)
                                 }
                             }
