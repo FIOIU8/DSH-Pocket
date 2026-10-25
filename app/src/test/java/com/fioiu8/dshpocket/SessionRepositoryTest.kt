@@ -1,6 +1,7 @@
 package com.fioiu8.dshpocket
 
 import com.fioiu8.dshpocket.engine.EngineApi.RpcResult
+import com.fioiu8.dshpocket.ui.state.ArchiveStore
 import com.fioiu8.dshpocket.ui.state.SessionFilter
 import com.fioiu8.dshpocket.ui.state.SessionLoadState
 import com.fioiu8.dshpocket.ui.state.SessionQuery
@@ -253,6 +254,77 @@ class SessionRepositoryTest {
         repository.archive("second")
 
         assertEquals(setOf("keep-me"), repository.state.value.archivedIds)
+    }
+
+    // ---- 5b. archive persistence ----------------------------------------------------------
+
+    /** In-memory stand-in for the preferences-backed store. */
+    private class MemoryArchiveStore(initial: Set<String> = emptySet()) : ArchiveStore {
+        var saved = initial
+        var saveCalls = 0
+        override fun load(): Set<String> = saved
+        override fun save(ids: Set<String>) {
+            saveCalls++
+            saved = ids
+        }
+    }
+
+    private fun TestScope.repository(source: SessionSource, store: ArchiveStore?) =
+        SessionRepository.createForTest(
+            scope = this,
+            source = { source },
+            archiveStore = store,
+        )
+
+    @Test
+    fun `a persisted archive set is restored on construction`() = runTest(StandardTestDispatcher()) {
+        val store = MemoryArchiveStore(initial = setOf("old-1", "old-2"))
+
+        val repository = repository(FakeSource(), store)
+
+        assertEquals("cold start replays the persisted set", setOf("old-1", "old-2"), repository.state.value.archivedIds)
+    }
+
+    @Test
+    fun `an archive write persists the engine-reported set`() = runTest(StandardTestDispatcher()) {
+        val store = MemoryArchiveStore()
+        val source = FakeSource().apply {
+            archiveResponse = JSONObject().put("archivedSessionIds", JSONArray().put("a").put("b"))
+        }
+        val repository = repository(source, store)
+
+        repository.archive("a")
+
+        assertEquals(setOf("a", "b"), store.saved)
+        assertEquals(1, store.saveCalls)
+    }
+
+    @Test
+    fun `a failed archive write does not touch the persisted set`() = runTest(StandardTestDispatcher()) {
+        val store = MemoryArchiveStore(initial = setOf("keep"))
+        val source = FakeSource()
+        source.listError = "http/500" to "down"
+        // archive itself succeeds but the response omits the field; the current set is kept.
+        val repository = repository(source, store)
+        val before = store.saved
+
+        repository.archive("a")
+
+        assertEquals("the engine-reported set is absent, so what we knew is re-persisted", before, store.saved)
+    }
+
+    @Test
+    fun `an unarchive write persists the shrunken set`() = runTest(StandardTestDispatcher()) {
+        val store = MemoryArchiveStore(initial = setOf("a", "b"))
+        val source = FakeSource().apply {
+            unarchiveResponse = JSONObject().put("archivedSessionIds", JSONArray().put("b"))
+        }
+        val repository = repository(source, store)
+
+        repository.unarchive("a")
+
+        assertEquals(setOf("b"), store.saved)
+        assertEquals(setOf("b"), repository.state.value.archivedIds)
     }
 
     // ---- 6. restore ---------------------------------------------------------------------

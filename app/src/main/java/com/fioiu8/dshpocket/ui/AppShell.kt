@@ -74,6 +74,7 @@ import com.fioiu8.dshpocket.ui.state.EngineSessionSource
 import com.fioiu8.dshpocket.ui.state.ModelRepository
 import com.fioiu8.dshpocket.ui.state.PluginRepository
 import com.fioiu8.dshpocket.ui.state.SessionRepository
+import com.fioiu8.dshpocket.ui.state.SharedPreferencesArchiveStore
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -216,12 +217,13 @@ fun AppShell(
     var pendingOpenSessionId by rememberSaveable { mutableStateOf<String?>(null) }
 
     // Shared per process, so the home card and the session screen read one source of
-    // truth and the poll loop runs once instead of once per screen.
+    // truth and the poll loop runs once instead of once per screen. The archive store
+    // keeps the archived set across restarts (session/list does not report it).
     val sessionRepository = remember {
-        SessionRepository.get(controller.applicationScope) {
+        SessionRepository.get(controller.applicationScope, {
             val ready = controller.state.value as? EngineState.Ready
             ready?.let { EngineSessionSource(it.baseUrl, it.token) }
-        }
+        }, SharedPreferencesArchiveStore(context.getSharedPreferences("ui_preferences", android.content.Context.MODE_PRIVATE)))
     }
 
     // Reads-only repository for the model screen; writes stay in the screen because their

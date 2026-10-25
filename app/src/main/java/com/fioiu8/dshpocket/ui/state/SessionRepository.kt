@@ -56,17 +56,40 @@ data class SessionUiState(
 )
 
 /**
+ * Persists the archived-session set across process and engine restarts.
+ *
+ * `session/list` does not report archived flags; the archive *write* responses carry the
+ * engine's full `archivedSessionIds`, which is what makes persistence possible at all:
+ * the set is learned from writes and replayed from storage on cold start.
+ */
+interface ArchiveStore {
+    fun load(): Set<String>
+    fun save(ids: Set<String>)
+}
+
+/** The shipped store: a string-set in the app's own preferences file. */
+class SharedPreferencesArchiveStore(private val prefs: android.content.SharedPreferences) : ArchiveStore {
+    override fun load(): Set<String> = prefs.getStringSet(KEY, null).orEmpty().toSet()
+
+    override fun save(ids: Set<String>) {
+        prefs.edit().putStringSet(KEY, ids).apply()
+    }
+
+    private companion object {
+        const val KEY = "archived_session_ids"
+    }
+}
+
+/**
  * Owns the session data and the single poll loop that used to be duplicated per screen.
  *
- * Known gap, deliberately preserved: `session/list` does not report archived flags, so
- * [archivedIds] can only be learned from the responses to archive and unarchive. It
- * therefore starts empty after an engine restart. This is left alone on purpose — Phase 1
- * is a behaviour-equivalence refactor, and closing this gap would change behaviour and
- * remove the baseline the equivalence tests measure against.
+ * The archived set is write-learned ([archivedIdsFromResponse]) and persisted through
+ * [ArchiveStore] when one is provided, so archiving survives engine and app restarts.
  */
 class SessionRepository(
     private val scope: CoroutineScope,
     private val source: () -> SessionSource?,
+    private val archiveStore: ArchiveStore? = null,
 ) {
 
     companion object {
@@ -76,17 +99,17 @@ class SessionRepository(
         @Volatile
         private var shared: SessionRepository? = null
 
-        fun get(scope: CoroutineScope, source: () -> SessionSource?): SessionRepository =
+        fun get(scope: CoroutineScope, source: () -> SessionSource?, archiveStore: ArchiveStore? = null): SessionRepository =
             shared ?: synchronized(this) {
-                shared ?: SessionRepository(scope, source).also { shared = it }
+                shared ?: SessionRepository(scope, source, archiveStore).also { shared = it }
             }
 
         /** Test seam; the shared instance is process-wide and cannot be reset otherwise. */
-        fun createForTest(scope: CoroutineScope, source: () -> SessionSource?) =
-            SessionRepository(scope, source)
+        fun createForTest(scope: CoroutineScope, source: () -> SessionSource?, archiveStore: ArchiveStore? = null) =
+            SessionRepository(scope, source, archiveStore)
     }
 
-    private val _state = MutableStateFlow(SessionUiState())
+    private val _state = MutableStateFlow(SessionUiState(archivedIds = archiveStore?.load().orEmpty()))
     val state: StateFlow<SessionUiState> = _state.asStateFlow()
 
     @Volatile
@@ -156,10 +179,11 @@ class SessionRepository(
         val result = call { source.archive(sessionId) }
         _state.update { current ->
             when (result) {
-                is RpcResult.Ok -> current.copy(
-                    archiving = false,
-                    archivedIds = archivedIdsFromResponse(result.value) ?: current.archivedIds,
-                )
+                is RpcResult.Ok -> {
+                    val archived = archivedIdsFromResponse(result.value) ?: current.archivedIds
+                    archiveStore?.save(archived)
+                    current.copy(archiving = false, archivedIds = archived)
+                }
                 is RpcResult.Err -> current.copy(
                     archiving = false,
                     load = SessionLoadState.Failed("${result.code}: ${result.message}"),
@@ -175,10 +199,11 @@ class SessionRepository(
         val result = call { source.unarchive(sessionId) }
         _state.update { current ->
             when (result) {
-                is RpcResult.Ok -> current.copy(
-                    restoringId = null,
-                    archivedIds = archivedIdsFromResponse(result.value) ?: current.archivedIds,
-                )
+                is RpcResult.Ok -> {
+                    val archived = archivedIdsFromResponse(result.value) ?: current.archivedIds
+                    archiveStore?.save(archived)
+                    current.copy(restoringId = null, archivedIds = archived)
+                }
                 is RpcResult.Err -> current.copy(
                     restoringId = null,
                     load = SessionLoadState.Failed("${result.code}: ${result.message}"),
@@ -241,29 +266,36 @@ internal fun archivedIdsFromValues(values: List<String>?): Set<String>? = values
 internal fun parseRows(items: JSONArray): List<SessionRow> = buildList {
     for (i in 0 until items.length()) {
         val item = items.optJSONObject(i) ?: continue
-        // blank = just created and still empty (the official Web UI creates one on open).
-        if (item.optBoolean("blank")) continue
-        val values = item.optJSONObject("projections")?.optJSONObject("values")
-        val model = values?.optJSONObject("modelSelection")?.optJSONObject("lastUsed")
-        val stats = values?.optJSONObject("sessionStats")
-                // optString turns JSON null into the string "null"; treat that as missing.
-                val title = values?.optString("title")?.takeIf { it.isNotBlank() && it != "null" }
-                // optInt returns 0 (not null) when the field is missing, so the turnOutline
-                // fallback has to check presence explicitly.
-                val steps = stats?.takeIf { it.has("steps") && !it.isNull("steps") }?.optInt("steps")
-                    ?: values?.optJSONArray("turnOutline")?.length()
-                    ?: 0
-                add(
-                    SessionRow(
-                        id = item.optString("sessionId"),
-                        title = title,
-                        updatedAt = item.optLong("updatedAt"),
-                        running = item.optBoolean("running"),
-                        provider = model?.optString("provider")?.takeIf { it.isNotBlank() && it != "null" },
-                        model = model?.optString("model")?.takeIf { it.isNotBlank() && it != "null" },
-                        steps = steps,
-                        cwd = item.optString("cwd").takeIf { it.isNotBlank() && it != "null" },
-                    ),
-                )
+        // One malformed row must not blank the whole list: org.json's opt* accessors
+        // absorb wrong-typed fields, this catch is the floor for anything that still
+        // escapes (a schema change, an unexpected primitive) — skip the row, keep the rest.
+        val row = runCatching { parseRow(item) }.getOrNull() ?: continue
+        add(row)
     }
 }.sortedByDescending { it.updatedAt }
+
+private fun parseRow(item: JSONObject): SessionRow? {
+    // blank = just created and still empty (the official Web UI creates one on open).
+    if (item.optBoolean("blank")) return null
+    val id = item.optString("sessionId").takeIf { it.isNotBlank() } ?: return null
+    val values = item.optJSONObject("projections")?.optJSONObject("values")
+    val model = values?.optJSONObject("modelSelection")?.optJSONObject("lastUsed")
+    val stats = values?.optJSONObject("sessionStats")
+    // optString turns JSON null into the string "null"; treat that as missing.
+    val title = values?.optString("title")?.takeIf { it.isNotBlank() && it != "null" }
+    // optInt returns 0 (not null) when the field is missing, so the turnOutline
+    // fallback has to check presence explicitly.
+    val steps = stats?.takeIf { it.has("steps") && !it.isNull("steps") }?.optInt("steps")
+        ?: values?.optJSONArray("turnOutline")?.length()
+        ?: 0
+    return SessionRow(
+        id = id,
+        title = title,
+        updatedAt = item.optLong("updatedAt"),
+        running = item.optBoolean("running"),
+        provider = model?.optString("provider")?.takeIf { it.isNotBlank() && it != "null" },
+        model = model?.optString("model")?.takeIf { it.isNotBlank() && it != "null" },
+        steps = steps,
+        cwd = item.optString("cwd").takeIf { it.isNotBlank() && it != "null" },
+    )
+}
