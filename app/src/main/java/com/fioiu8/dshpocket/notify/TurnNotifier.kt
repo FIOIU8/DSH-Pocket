@@ -26,8 +26,8 @@ import kotlinx.coroutines.launch
  *
  * 为什么轮询而不是订阅流：会话流（session/follow）只覆盖当前打开的那一个会话，而通知
  * 恰恰要在用户**没有**盯着会话时到达；15s 级的列表轮询在回环接口上的代价可以忽略。
- * 对话页可见时整体静音——用户正看着会话，通知反而是打扰。引擎未就绪时循环停止，
- * 运行集清空（引擎重启后旧状态没有意义）。
+ * 2026-10-25 起不再因"对话页可见"而静音——用户点名要每回合结束都有提示。引擎未就绪时
+ * 循环停止，运行集清空（引擎重启后旧状态没有意义）。
  */
 object TurnNotifier {
 
@@ -42,13 +42,13 @@ object TurnNotifier {
         rows.filter { !it.running && it.id in previousRunning }
 
     /** (Re)starts watching. Cancels any previous loop; a fresh [Ready] starts from silence. */
-    fun watch(scope: CoroutineScope, context: Context, ready: EngineState.Ready, isChatVisible: () -> Boolean) {
+    fun watch(scope: CoroutineScope, context: Context, ready: EngineState.Ready) {
         stop()
         ensureChannel(context)
         job = scope.launch {
             val source = EngineSessionSource(ready.baseUrl, ready.token)
             while (isActive) {
-                pollOnce(context, source, isChatVisible)
+                pollOnce(context, source)
                 delay(POLL_INTERVAL_MS)
             }
         }
@@ -61,7 +61,7 @@ object TurnNotifier {
         runningIds.clear()
     }
 
-    private suspend fun pollOnce(context: Context, source: EngineSessionSource, isChatVisible: () -> Boolean) {
+    private suspend fun pollOnce(context: Context, source: EngineSessionSource) {
         val rows = when (val result = source.list()) {
             is RpcResult.Ok -> parseRows(EngineApi.itemsOf(result.value))
             // The engine being mid-restart is routine; the next tick re-checks.
@@ -70,8 +70,6 @@ object TurnNotifier {
         val finished = newlyFinished(runningIds.toSet(), rows)
         runningIds.clear()
         rows.forEach { if (it.running) runningIds.add(it.id) }
-        // The user looking at the chat sees the turn end live; a notification then is noise.
-        if (isChatVisible()) return
         finished.forEach { row -> post(context, row) }
     }
 
