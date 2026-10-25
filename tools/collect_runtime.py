@@ -336,6 +336,239 @@ def patch_fs_local(nm: Path, log) -> None:
     log("dsh-fs-local: createIfAbsent -> lstat + rename on android")
 
 
+# The vendored engine exposes no way to rewrite a committed message, but its surface
+# contract has everything the Pocket message-edit feature needs: a replace op shadows
+# nodes out of the derived model context, and `session/fork` handles the user-message
+# path. This patch adds one RPC, `session/editMessage`, for the in-place assistant
+# edit: a developer/message sentinel replaces the target node (the UI hides all
+# developer messages), then the corrected assistant/message is appended. Editing an
+# assistant event directly is forbidden by the surface validators (assistant events
+# cannot cite sourceEventSeqs), hence the sentinel dance.
+SESSION_EDIT_SENTINEL = (
+    "The assistant message that was here has been edited by the user; "
+    "the following message is the corrected version."
+)
+
+def _tabs(snippet: str) -> str:
+    """Re-indent a 4-space-indented snippet with tabs (index.js inline regions use tabs)."""
+    return "\n".join(
+        "\t" * ((len(line) - len(line.lstrip(" "))) // 4) + line.lstrip(" ")
+        for line in snippet.split("\n")
+    )
+
+
+# `paginate` filters the page by `isAppendSurfaceEvent`, which drops the replacement
+# event itself but keeps every event the replacement shadowed: the page then carries
+# both the old and the corrected message. Fold the shadow set out of the same log so a
+# page is the current message surface, not every append that ever happened.
+SESSION_PAGE_SHADOW_HELPER_JS = """/**
+ * Seqs a surface `replace` op has shadowed out of the current message surface.
+ * The surface validators require a replacement to cite every node it shadows, so
+ * `sourceEventSeqs` is the complete shadow set without folding the log.
+ * @param events - complete contiguous raw event log.
+ * @returns the shadowed seqs.
+ */
+function shadowedEventSeqs(events) {
+\tconst shadowed = /* @__PURE__ */ new Set();
+\tfor (const event of events) {
+\t\tconst op = event.surfaceOp;
+\t\tif (op === void 0 || op === null || typeof op !== "object" || op.op !== "replace") continue;
+\t\tfor (const seq of event.sourceEventSeqs ?? []) shadowed.add(seq);
+\t}
+\treturn shadowed;
+}
+
+"""
+
+SESSION_EDIT_METHOD_JS = """    async editMessage(request) {
+        if (typeof request.content !== 'string' || request.content.trim().length === 0) {
+            throw new RemoteError('gateway/bad-request', 'editMessage content must include non-whitespace text', {});
+        }
+        const atSeq = request.atSeq;
+        if (!Number.isSafeInteger(atSeq) || atSeq < 0) {
+            throw new RemoteError('gateway/bad-request', 'atSeq must be a non-negative safe integer', {});
+        }
+        let agent = this.ctx.agents.get(request.sessionId);
+        if (agent === undefined) {
+            const found = await this.agents.resolveAgent(request.sessionId);
+            if ('error' in found) throw found.error;
+            agent = found.agent;
+        }
+        if (hasApiSessionSubagentOwner(this.ctx, agent.session, agent)) {
+            throw apiSessionSubagentOwnershipError(request.sessionId);
+        }
+        if (agent.status === 'running') {
+            throw new RemoteError('session/agent-busy', 'cannot edit a message while the agent is running', { sessionId: request.sessionId });
+        }
+        const session = agent.session;
+        const target = session.snapshotEvents()[atSeq];
+        if (target === undefined || target.type !== 'assistant/message') {
+            throw new RemoteError('session/edit-target-invalid', `event ${String(atSeq)} is not an assistant message in session "${request.sessionId}"`, { sessionId: request.sessionId });
+        }
+        const selection = this.agents.selectionFor(agent).current;
+        const turn = target.data?.turn ?? 0;
+        const step = target.data?.step ?? 0;
+        try {
+            const note = createDeveloperMessage({
+                source: { kind: 'pocket-edit' },
+                content: [{ type: 'text', text: %s }],
+            });
+            session.append('developer/message', { message: note }, {
+                surfaceOp: { op: 'replace', startSeq: atSeq, endSeq: atSeq },
+                sourceEventSeqs: [atSeq],
+            });
+            const message = createAssistantMessage({
+                content: [{ type: 'text', text: request.content }],
+                source: { provider: selection.provider, model: selection.model },
+            });
+            // `stream: []` is load-bearing: an Assistant settlement must embed its
+            // provider stream array (the token-meter projections call
+            // lastAssistantStreamChunk(data.stream) unconditionally). An edited
+            // message has no live stream behind it, so it records an empty one and
+            // the metering projections fold it as "no usage sample".
+            const seq = session.append('assistant/message', { turn, step, message, stream: [] }, { surfaceOp: 'append' }).seq;
+            return { seq };
+        }
+        catch (error) {
+            throw new RemoteError('session/edit-unavailable', `failed to record the edit in session "${request.sessionId}": ${String(error)}`, { sessionId: request.sessionId });
+        }
+    }
+""" % json.dumps(SESSION_EDIT_SENTINEL)
+
+SESSION_EDIT_FORWARD_JS = """\t\t/**
+\t\t* Rewrite one assistant surface message in place (DSH Pocket edit).
+\t\t* @param request - Session identity, target event seq, and edited text.
+\t\t* @returns acknowledgement with the new assistant message seq.
+\t\t*/
+\t\teditMessage(request) {
+\t\t\treturn this.commands.editMessage(request);
+\t\t}
+"""
+
+SESSION_EDIT_SCHEMAS_JS = """let _deepseek_ai_dsh_api_session_controller_session_editMessage_parameter_0$schema$value
+const _deepseek_ai_dsh_api_session_controller_session_editMessage_parameter_0$schema = () => (_deepseek_ai_dsh_api_session_controller_session_editMessage_parameter_0$schema$value ??= z.object({
+  'sessionId': z.intersection(z.string(), z.unknown()).readonly(),
+  'atSeq': z.number().readonly(),
+  'content': z.string().readonly(),
+}))
+let _deepseek_ai_dsh_api_session_controller_session_editMessage_result$schema$value
+const _deepseek_ai_dsh_api_session_controller_session_editMessage_result$schema = () => (_deepseek_ai_dsh_api_session_controller_session_editMessage_result$schema$value ??= z.object({
+  'seq': z.number().readonly(),
+}))
+"""
+
+SESSION_EDIT_PROVIDER_JS = """    {
+      id: '@deepseek-ai/dsh-api-session-controller#session/editMessage',
+      service: 'sessionController',
+      namespace: 'session',
+      method: 'editMessage',
+      invocation: { kind: 'direct' },
+      parameters: [
+        {
+          name: 'request',
+          wire: 'request',
+          source: 'json',
+          codec: {
+            mode: 'strict',
+            typeSymbol: '@deepseek-ai/dsh-api-session-controller/types#SessionEditMessageRequest',
+            create: _deepseek_ai_dsh_api_session_controller_session_editMessage_parameter_0$schema,
+          },
+        },
+      ],
+      result: {
+        mode: 'strict',
+        typeSymbol: '@deepseek-ai/dsh-api-session-controller/types#SessionEditMessageValue',
+        create: _deepseek_ai_dsh_api_session_controller_session_editMessage_result$schema,
+      },
+      sourceLocation: {"file":"packages/api/session-controller/src/index.ts","line":1,"column":1},
+    },
+"""
+
+
+def patch_session_edit(nm: Path, log) -> None:
+    """Expose session/editMessage for the Pocket in-place assistant-message edit.
+
+    `lib/index.js` is the runtime bundle: it inlines `lib/types/commands.js` as a
+    `//#region` block, so the controller that actually runs is the copy inside
+    index.js. Patching only the standalone `types/commands.js` ships dead code and
+    the RPC fails at call time with `this.commands.editMessage is not a function`.
+    """
+    pkg = nm / "@deepseek-ai" / "dsh-api-session-controller" / "lib"
+    index = pkg / "index.js"
+    host = pkg / "typert.host.js"
+    if not (index.is_file() and host.is_file()):
+        log("dsh-api-session-controller: expected files missing, skipped")
+        return
+
+    src = index.read_text("utf-8")
+    if "shadowedEventSeqs" in src:
+        log("session-edit: already patched")
+        return
+
+    llm_import = (
+        'import { AssistantStreamAccumulator, ReasoningEffortId, assistantStreamChunks, '
+        'createUserMessage, errorChain, freezeMessage } from "@deepseek-ai/dsh-llm";'
+    )
+    llm_import_patched = (
+        'import { AssistantStreamAccumulator, ReasoningEffortId, assistantStreamChunks, '
+        'createAssistantMessage, createDeveloperMessage, createUserMessage, errorChain, '
+        'freezeMessage } from "@deepseek-ai/dsh-llm";'
+    )
+    # The commands class is the SECOND `resolveAgent` in the bundle (the first is the
+    # Agent facade); this anchor's body tells them apart.
+    resolve_anchor = (
+        "\tasync resolveAgent(sessionId) {\n"
+        "\t\tconst found = await this.agents.resolveAgent(sessionId);\n"
+    )
+    cancel_anchor = "\t\tcancel(request) {\n\t\t\treturn this.commands.cancel(request);\n\t\t}\n"
+    paginate_anchor = (
+        "function paginate(events, beforeSeq, maxMessages, throughSeq, turnWindow) {\n"
+        "\tconst end = SessionLogOffset(Math.min(throughSeq + 1, beforeSeq ?? throughSeq + 1));\n"
+    )
+    paginate_patched = (
+        SESSION_PAGE_SHADOW_HELPER_JS
+        + "function paginate(events, beforeSeq, maxMessages, throughSeq, turnWindow) {\n"
+        "\tconst end = SessionLogOffset(Math.min(throughSeq + 1, beforeSeq ?? throughSeq + 1));\n"
+        "\tconst shadowed = shadowedEventSeqs(events);\n"
+    )
+    page_skip_anchor = (
+        "\tfor (let index = end - 1; index >= 0; index--) {\n"
+        "\t\tconst event = events[index];\n"
+    )
+    page_skip_patched = page_skip_anchor + (
+        "\t\tif (shadowed.has(event.seq)) continue;\n"
+    )
+    fork_schema_anchor = "let _deepseek_ai_dsh_api_session_controller_session_fork_parameter_0$schema$value\n"
+    fork_entry_anchor = (
+        '      sourceLocation: {"file":"packages/api/session-controller/src/index.ts","line":415,"column":3},\n'
+        "    },\n"
+    )
+    if not (
+        llm_import in src
+        and resolve_anchor in src
+        and cancel_anchor in src
+        and paginate_anchor in src
+        and page_skip_anchor in src
+    ):
+        log("session-edit: WARN index.js anchors not matched (upstream changed)")
+        return
+    src = src.replace(llm_import, llm_import_patched, 1)
+    src = src.replace(resolve_anchor, _tabs(SESSION_EDIT_METHOD_JS) + resolve_anchor, 1)
+    src = src.replace(cancel_anchor, cancel_anchor + SESSION_EDIT_FORWARD_JS, 1)
+    src = src.replace(paginate_anchor, paginate_patched, 1)
+    src = src.replace(page_skip_anchor, page_skip_patched, 1)
+    index.write_text(src, "utf-8")
+
+    src = host.read_text("utf-8")
+    if not (fork_schema_anchor in src and fork_entry_anchor in src):
+        log("session-edit: WARN typert.host.js anchors not matched (upstream changed)")
+        return
+    src = src.replace(fork_schema_anchor, SESSION_EDIT_SCHEMAS_JS + fork_schema_anchor, 1)
+    src = src.replace(fork_entry_anchor, fork_entry_anchor + SESSION_EDIT_PROVIDER_JS, 1)
+    host.write_text(src, "utf-8")
+    log("session-edit: session/editMessage RPC installed")
+
+
 def inject_ripgrep(nm: Path, arch: str, root: Path, log) -> None:
     node_arch = {"x86_64": "x64", "aarch64": "arm64"}[arch]
     src = root / "bin" / "rg"
@@ -580,6 +813,7 @@ def cmd_pack(args) -> int:
     patch_link_to_rename(nm, "@deepseek-ai/dsh-attachment-local/lib/index.js", log)
     patch_link_to_rename(nm, "@deepseek-ai/dsh-session-persistence-jsonl/lib/index.js", log)
     patch_fs_local(nm, log)
+    patch_session_edit(nm, log)
     inject_ripgrep(nm, args.arch, root, log)
     drop_host_platforms(nm, log)
     ensure_sharp_wasm(nm, log)

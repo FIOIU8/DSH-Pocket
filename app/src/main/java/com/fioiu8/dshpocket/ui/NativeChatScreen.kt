@@ -128,6 +128,8 @@ data class NativeChatMessage(
     val argumentsText: String? = null,
     val resultText: String? = null,
     val isError: Boolean = false,
+    // Set on an assistant message re-inserted by a surface replace (user edit).
+    val edited: Boolean = false,
 ) {
     val isRunningToolCall: Boolean get() = role == "tool_call" && resultText == null
 }
@@ -275,6 +277,9 @@ fun NativeChatScreen(
     val labelUntitledSession = stringResource(com.fioiu8.dshpocket.R.string.home_untitled_session)
     val labelImageAttachment = stringResource(com.fioiu8.dshpocket.R.string.native_image_attachment)
     val labelFileAttachment = stringResource(com.fioiu8.dshpocket.R.string.native_file_attachment)
+    val labelEditFailed = stringResource(com.fioiu8.dshpocket.R.string.native_edit_failed)
+    val labelEditResend = stringResource(com.fioiu8.dshpocket.R.string.native_message_edit_resend)
+    val labelEditSave = stringResource(com.fioiu8.dshpocket.R.string.native_message_edit_save)
 
     suspend fun loadSessions(engine: EngineState.Ready) {
         val result = chatRpc(
@@ -574,6 +579,88 @@ fun NativeChatScreen(
         }
     }
 
+    fun canEditMessage(message: NativeChatMessage): Boolean =
+        !running && !promptInFlight && !editInFlight && sessionId != null &&
+            (message.role == "user" || message.role == "assistant") &&
+            message.seq >= 0L && message.id != "live-assistant"
+
+    fun applyUserEdit(message: NativeChatMessage, newText: String) {
+        val engine = ready ?: return
+        val previousId = sessionId ?: return
+        editInFlight = true
+        scope.launch {
+            try {
+                // 丢弃被编辑消息之后的整段历史：从其前一个事件分叉出新会话（首条消息则
+                // 直接开新会话），再把编辑后的文本作为新回合发出；旧会话随后归档，列表里
+                // 只见续写的新会话。上下文即分叉日志的权威派生，不存在假修改。
+                val forked = if (message.seq <= 0L) {
+                    chatRpc(
+                        engine.baseUrl,
+                        "session/create",
+                        EngineApi.requestArgs(JSONObject().put("cwd", EnginePaths.workspace(context).absolutePath)),
+                        engine.token,
+                    )
+                } else {
+                    chatRpc(
+                        engine.baseUrl,
+                        "session/fork",
+                        EngineApi.requestArgs(
+                            JSONObject().put("sessionId", previousId).put("atSeq", message.seq - 1),
+                        ),
+                        engine.token,
+                    )
+                }
+                val targetId = ((forked as? RpcResult.Ok)?.value as? JSONObject)
+                    ?.optString("sessionId")?.takeIf(String::isNotBlank)
+                if (targetId == null) {
+                    error = "$labelEditFailed: ${(forked as? RpcResult.Err)?.message ?: "no sessionId returned"}"
+                    return@launch
+                }
+                editingMessageId = null
+                sessionId = targetId
+                messages = emptyList()
+                liveAssistantText = ""
+                liveThinking = null
+                error = null
+                sessionViewModel.sendPrompt(
+                    engine = engine,
+                    text = newText,
+                    sessionId = targetId,
+                    workspacePath = EnginePaths.workspace(context).absolutePath,
+                    restoreDraft = false,
+                )
+                sessionViewModel.archive(previousId)
+                loadSessions(engine)
+            } finally {
+                editInFlight = false
+            }
+        }
+    }
+
+    fun applyAssistantEdit(message: NativeChatMessage, newText: String) {
+        val engine = ready ?: return
+        val currentId = sessionId ?: return
+        editInFlight = true
+        scope.launch {
+            try {
+                val request = JSONObject()
+                    .put("sessionId", currentId)
+                    .put("atSeq", message.seq)
+                    .put("content", newText)
+                when (val result = chatRpc(engine.baseUrl, "session/editMessage", EngineApi.requestArgs(request), engine.token)) {
+                    is RpcResult.Err -> error = "$labelEditFailed: ${result.message}"
+                    is RpcResult.Ok -> {
+                        editingMessageId = null
+                        error = null
+                        refreshMessages(engine, currentId)
+                    }
+                }
+            } finally {
+                editInFlight = false
+            }
+        }
+    }
+
     Scaffold(
         topBar = {
             DshTopAppBar(
@@ -656,9 +743,18 @@ fun NativeChatScreen(
                             verticalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
                             items(visibleMessages, key = { it.id }) { message ->
-                                when (message.role) {
-                                    "tool_call" -> ToolCallCard(message)
-                                    "thinking" -> ThinkingCard(message, live = message.id == "live-thinking")
+                                when {
+                                    message.role == "tool_call" -> ToolCallCard(message)
+                                    message.role == "thinking" -> ThinkingCard(message, live = message.id == "live-thinking")
+                                    editingMessageId == message.id -> MessageEditField(
+                                        initial = message.text,
+                                        confirmLabel = if (message.role == "user") labelEditResend else labelEditSave,
+                                        busy = editInFlight,
+                                        onConfirm = { text ->
+                                            if (message.role == "user") applyUserEdit(message, text) else applyAssistantEdit(message, text)
+                                        },
+                                        onCancel = { editingMessageId = null },
+                                    )
                                     else -> NativeMessageBubble(
                                         message = message,
                                         style = style,
@@ -681,6 +777,7 @@ fun NativeChatScreen(
                                             }
                                         }
                                     } else null,
+                                        onEdit = if (canEditMessage(message)) { { editingMessageId = message.id } } else null,
                                     )
                                 }
                             }
@@ -853,6 +950,7 @@ private fun NativeMessageBubble(
     style: NativeChatStyle,
     preferences: NativeChatPreferences,
     onAssist: (() -> Unit)?,
+    onEdit: (() -> Unit)? = null,
 ) {
     val fromUser = message.role == "user"
     val clipboard = LocalClipboard.current
@@ -909,7 +1007,7 @@ private fun NativeMessageBubble(
                     )
                 }
             }
-            MessageMetadata(message, preferences, onAssist) {
+            MessageMetadata(message, preferences, onAssist, onEdit) {
                 scope.launch {
                     clipboard.setClipEntry(
                         ClipEntry(ClipData.newPlainText("message", message.text)),
@@ -925,12 +1023,14 @@ private fun MessageMetadata(
     message: NativeChatMessage,
     preferences: NativeChatPreferences,
     onAssist: (() -> Unit)?,
+    onEdit: (() -> Unit)?,
     onCopy: () -> Unit,
 ) {
     val fromUser = message.role == "user"
     // Read the locale observably. Locale.getDefault() would not recompose when the user
     // switches the app language, leaving numbers formatted in the old locale.
     val locale = LocalConfiguration.current.locales[0]
+    val editedLabel = stringResource(com.fioiu8.dshpocket.R.string.native_message_edited)
     val metadata = buildList {
         if (preferences.showMessageTime && message.time > 0) add(formatMessageTime(message.time, locale))
         if (preferences.showTokenUsage) {
@@ -945,12 +1045,18 @@ private fun MessageMetadata(
                 }
             }
         }
+        if (message.edited) add(editedLabel)
     }
     Row(
         modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = if (fromUser) Arrangement.End else Arrangement.Start,
     ) {
+        if (onEdit != null) {
+            IconButton(onClick = onEdit, modifier = Modifier.size(36.dp)) {
+                Icon(Icons.Filled.Edit, contentDescription = stringResource(com.fioiu8.dshpocket.R.string.native_message_edit), modifier = Modifier.size(17.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
         IconButton(onClick = onCopy, modifier = Modifier.size(36.dp)) {
             Icon(Icons.Filled.ContentCopy, contentDescription = stringResource(com.fioiu8.dshpocket.R.string.copy), modifier = Modifier.size(19.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
@@ -1084,6 +1190,51 @@ private fun ChatComposer(
                             Icon(Icons.AutoMirrored.Filled.Send, contentDescription = stringResource(com.fioiu8.dshpocket.R.string.send))
                         }
                     }
+                }
+            }
+        }
+    }
+}
+
+/** Inline message editing: a multiline field plus cancel/confirm, rendered in the bubble's place. */
+@Composable
+private fun MessageEditField(
+    initial: String,
+    confirmLabel: String,
+    busy: Boolean,
+    onConfirm: (String) -> Unit,
+    onCancel: () -> Unit,
+) {
+    var text by rememberSaveable(initial) { mutableStateOf(initial) }
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        shape = MaterialTheme.shapes.medium,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
+            BasicTextField(
+                value = text,
+                onValueChange = { text = it },
+                enabled = !busy,
+                minLines = 2,
+                maxLines = 10,
+                textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (busy) {
+                    CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                    Spacer(Modifier.size(8.dp))
+                }
+                TextButton(onClick = onCancel, enabled = !busy) {
+                    Text(stringResource(com.fioiu8.dshpocket.R.string.close))
+                }
+                TextButton(onClick = { onConfirm(text.trim()) }, enabled = !busy && text.isNotBlank()) {
+                    Text(confirmLabel)
                 }
             }
         }
@@ -1274,6 +1425,9 @@ internal fun parseNativeChatMessages(
     // True once this step's thinking already came from an `assistant/attempt` event, so
     // the assistant message's own stream must not produce a second, identical card.
     var attemptThinkingThisStep = false
+    // The pocket edit flow shadows an assistant message with a sentinel developer note
+    // (a surface replace); the appended assistant message right after it is the edited one.
+    var lastEventWasEditShadow = false
     for (index in 0 until records.length()) {
         val event = records.optJSONObject(index)?.optJSONObject("event") ?: continue
         val type = event.optString("type")
@@ -1362,6 +1516,15 @@ internal fun parseNativeChatMessages(
             "assistant/message" -> data.optJSONObject("message")
             else -> null
         } ?: continue
+        // The edit sentinel (developer note replacing a shadowed assistant message) never
+        // renders; it only marks the appended assistant message as the edited one.
+        val shadowing = event.optJSONObject("surfaceOp")?.optString("op") == "replace"
+        if (type == "developer/message" && shadowing) {
+            lastEventWasEditShadow = true
+            continue
+        }
+        val editedMessage = type == "assistant/message" && lastEventWasEditShadow
+        lastEventWasEditShadow = false
         val text = contentText(message.optJSONArray("content"), imagePlaceholder, filePlaceholder)
             .ifBlank { message.optString("text").takeIf { it != "null" }.orEmpty() }
         if (text.isBlank()) continue
@@ -1418,6 +1581,7 @@ internal fun parseNativeChatMessages(
                 outputTokens,
                 durationMs,
                 seq = seq,
+                edited = editedMessage,
             ),
         )
     }
@@ -1460,6 +1624,17 @@ internal fun applySessionEvent(
 ): List<NativeChatMessage> {
     val type = event.optString("type")
     val data = event.optJSONObject("data") ?: return existing
+    // A surface replace shadows older nodes out of the model-visible history; drop the
+    // messages it cites so the live list matches what the next refresh will return.
+    var base = existing
+    if (event.optJSONObject("surfaceOp")?.optString("op") == "replace") {
+        val sources = event.optJSONArray("sourceEventSeqs")
+        if (sources != null && sources.length() > 0) {
+            val shadowed = HashSet<Long>()
+            for (index in 0 until sources.length()) shadowed.add(sources.optLong(index))
+            base = base.filterNot { it.seq in shadowed }
+        }
+    }
     if (type == "tool/result") {
         val message = data.optJSONObject("message")
         val callId = message?.optString("toolCallId").orEmpty()
@@ -1472,8 +1647,8 @@ internal fun applySessionEvent(
     }
     val records = JSONArray().put(JSONObject().put("event", event))
     val incoming = parseNativeChatMessages(records, imagePlaceholder, filePlaceholder)
-    if (incoming.isEmpty()) return existing
-    return (existing + incoming).distinctBy { it.id }
+    if (incoming.isEmpty()) return base
+    return (base + incoming).distinctBy { it.id }
 }
 
 internal fun latestNativeSuggestions(messages: List<NativeChatMessage>): List<String> {

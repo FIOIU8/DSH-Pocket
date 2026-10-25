@@ -230,6 +230,11 @@
     <string name="native_assist_prompt">Building on the previous reply and the current context, continue with helpful new information and avoid repeating what was already said.</string>
     <string name="native_stop_failed">Stop failed</string>
     <string name="native_send_failed">Send failed</string>
+    <string name="native_message_edit">Edit</string>
+    <string name="native_message_edited">edited</string>
+    <string name="native_message_edit_resend">Save &amp; regenerate</string>
+    <string name="native_message_edit_save">Save</string>
+    <string name="native_edit_failed">Edit failed</string>
     <string name="native_image_attachment">[Image]</string>
     <string name="native_file_attachment">[File]</string>
     <string name="copy">Copy message</string>
