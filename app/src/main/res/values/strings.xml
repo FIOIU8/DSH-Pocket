@@ -145,6 +145,11 @@
     <string name="backup_failed">Operation failed: %1$s</string>
     <string name="backup_restore_confirm_title">Restore and replace engine data?</string>
     <string name="backup_restore_confirm_body">The current sessions and engine settings are replaced by the archive contents. This cannot be undone. The engine must be stopped; API keys are not restored and have to be entered again.</string>
+    <string name="notify_channel_turns">Turn updates</string>
+    <string name="notify_channel_turns_desc">Notifies when an agent turn finishes running</string>
+    <string name="notify_turn_title">Turn finished</string>
+    <string name="notify_turn_body">%1$s stopped running</string>
+    <string name="notify_turn_untitled">A session</string>
 
 
 

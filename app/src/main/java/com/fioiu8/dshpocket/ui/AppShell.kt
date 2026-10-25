@@ -108,6 +108,7 @@ import com.fioiu8.dshpocket.capability.CapabilitySnapshot
 import com.fioiu8.dshpocket.engine.EngineController
 import com.fioiu8.dshpocket.engine.EnginePaths
 import com.fioiu8.dshpocket.engine.EngineService
+import com.fioiu8.dshpocket.notify.TurnNotifier
 import com.fioiu8.dshpocket.engine.EngineState
 import com.fioiu8.dshpocket.engine.SessionCookie
 import com.fioiu8.dshpocket.ui.theme.DshMotion
@@ -241,6 +242,23 @@ fun AppShell(
         PluginRepository.get {
             val ready = controller.state.value as? EngineState.Ready
             ready?.let { EnginePluginSource(it.baseUrl, it.token) }
+        }
+    }
+
+    // Turn-finished notifications. Keyed on engine state only: tab switches must not
+    // restart the loop (isChatVisible reads the live destination), and a non-Ready state
+    // stops it and forgets the running set.
+    LaunchedEffect(state) {
+        val ready = state as? EngineState.Ready
+        if (ready == null) {
+            TurnNotifier.stop()
+        } else {
+            TurnNotifier.watch(
+                controller.applicationScope,
+                context,
+                ready,
+                isChatVisible = { destination == Destination.Chat },
+            )
         }
     }
 
