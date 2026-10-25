@@ -26,7 +26,6 @@ object DshSpacing {
 
 object DshShapes {
     val surface = 16.dp
-    val item = 10.dp
     val control = 12.dp
 }
 

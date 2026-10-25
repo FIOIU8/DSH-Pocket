@@ -25,7 +25,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
@@ -589,7 +588,7 @@ fun NativeChatScreen(
                             Surface(
                                 color = MaterialTheme.colorScheme.errorContainer,
                                 modifier = Modifier.fillMaxWidth().padding(horizontal = DshSpacing.page, vertical = 4.dp),
-                                shape = RoundedCornerShape(12.dp),
+                                shape = MaterialTheme.shapes.medium,
                             ) {
                                 Text(
                                     error.orEmpty(),
@@ -831,7 +830,9 @@ private fun NativeMessageBubble(
             if (fromUser) {
                 Surface(
                     color = style.userBubble,
-                    shape = RoundedCornerShape(style.cornerRadius.dp),
+                    // MD3 token instead of the engine-driven radius, so every bubble
+                    // matches the app-wide shape scale; the engine still picks the color.
+                    shape = MaterialTheme.shapes.large,
                     modifier = Modifier.widthIn(max = 340.dp).wrapContentWidth(),
                 ) {
                     SelectionContainer {
@@ -962,11 +963,11 @@ private fun ChatComposer(
         }
         Surface(
             color = MaterialTheme.colorScheme.surface,
-            shape = RoundedCornerShape(26.dp),
+            shape = MaterialTheme.shapes.extraLarge,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 8.dp)
-                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(26.dp)),
+                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, MaterialTheme.shapes.extraLarge),
         ) {
             Column(Modifier.padding(horizontal = 18.dp, vertical = 14.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1599,7 +1600,7 @@ private fun ToolCallCard(message: NativeChatMessage) {
     val argText = label.arg
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerLow,
-        shape = RoundedCornerShape(12.dp),
+        shape = MaterialTheme.shapes.medium,
         modifier = Modifier.fillMaxWidth(),
     ) {
         Column(Modifier.padding(horizontal = 12.dp)) {
@@ -1675,7 +1676,7 @@ private fun ThinkingCard(message: NativeChatMessage, live: Boolean) {
     val locale = LocalConfiguration.current.locales[0]
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerLow,
-        shape = RoundedCornerShape(12.dp),
+        shape = MaterialTheme.shapes.medium,
         modifier = Modifier.fillMaxWidth(),
     ) {
         Column(Modifier.padding(horizontal = 12.dp)) {
