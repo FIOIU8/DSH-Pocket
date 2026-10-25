@@ -1,5 +1,7 @@
 package com.fioiu8.dshpocket.ui
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -25,6 +27,7 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.DataUsage
 import androidx.compose.material.icons.filled.AutoAwesome
@@ -51,13 +54,17 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import android.net.Uri
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.res.stringResource
+import com.fioiu8.dshpocket.backup.BackupManager
 import com.fioiu8.dshpocket.capability.CapabilitySnapshot
 import com.fioiu8.dshpocket.capability.CapabilityState
 import com.fioiu8.dshpocket.capability.CompanionStatus
@@ -67,7 +74,11 @@ import com.fioiu8.dshpocket.engine.EngineState
 import com.fioiu8.dshpocket.engine.RuntimeInstaller
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import com.fioiu8.dshpocket.ui.theme.DshShapes
 import com.fioiu8.dshpocket.ui.theme.DshSpacing
 import com.fioiu8.dshpocket.ui.theme.dshSpring
@@ -242,6 +253,8 @@ fun SettingsDetailScreen(
                         items = listOf { KeyValueRow(stringResource(com.fioiu8.dshpocket.R.string.settings_current), workspacePath.ifBlank { stringResource(com.fioiu8.dshpocket.R.string.loading) }) },
                     )
                     HelperText(stringResource(com.fioiu8.dshpocket.R.string.settings_shared_workspace_hint, EnginePaths.SHARED_WORKSPACE))
+                    SectionHeader(stringResource(com.fioiu8.dshpocket.R.string.settings_backup_section))
+                    BackupSection(state)
                 }
                 SettingsSection.General -> {
                     SectionHeader(stringResource(com.fioiu8.dshpocket.R.string.settings_preferences))
@@ -637,4 +650,155 @@ fun CapabilityState.label(): String = when (this) {
     CapabilityState.INSTALLED -> stringResource(com.fioiu8.dshpocket.R.string.capability_installed_pending)
     CapabilityState.NOT_INSTALLED -> stringResource(com.fioiu8.dshpocket.R.string.capability_not_installed)
     CapabilityState.UNSUPPORTED -> stringResource(com.fioiu8.dshpocket.R.string.capability_system_unsupported)
+}
+
+/**
+ * 备份与恢复（设置 → 运行时）。
+ *
+ * 导出走 SAF 的 CreateDocument（无需存储权限），把 `$DSH_HOME` 打成 zip——凭据目录、
+ * `.credentials*`、`.ssh`、`.gnupg`、`*.key` 与日志被排除（[BackupManager.isExcluded]）。
+ * 恢复走 OpenDocument，要求引擎已停止：整个恢复先解到临时目录，全部校验通过才原子
+ * 换入（[BackupManager.restore]），坏档不会毁掉现有数据。API 密钥不在备份里，恢复后
+ * 需要重新输入——这是"凭据不出设备"的代价，在帮助文案里明说。
+ */
+@Composable
+private fun BackupSection(state: EngineState) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var busy by remember { mutableStateOf(false) }
+    var status by remember { mutableStateOf<String?>(null) }
+    var pendingRestore by remember { mutableStateOf<Uri?>(null) }
+    // Format-arg variants: the arguments (counts, engine reasons) only exist inside the
+    // result lambdas, so what is captured is a formatter over LocalResources — which
+    // recomposes on configuration change — rather than LocalContext.getString, which
+    // would freeze the locale (the LocalContextGetResourceValueCall lint rule).
+    val resources = LocalResources.current
+
+    val exportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/zip"),
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        busy = true
+        status = null
+        scope.launch {
+            val outcome = withContext(Dispatchers.IO) {
+                runCatching {
+                    context.contentResolver.openOutputStream(uri)?.use { output ->
+                        BackupManager.export(
+                            EnginePaths.dshHome(context),
+                            output,
+                            BackupManager.Manifest(
+                                schemaVersion = BackupManager.SCHEMA_VERSION,
+                                createdAt = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US)
+                                    .apply { timeZone = java.util.TimeZone.getTimeZone("UTC") }
+                                    .format(Date()),
+                                appVersion = runCatching {
+                                    context.packageManager.getPackageInfo(context.packageName, 0).versionName
+                                }.getOrNull().orEmpty(),
+                                dshVersion = EnginePaths.dshVersion(EnginePaths.root(context)),
+                                fileCount = 0,
+                            ),
+                        )
+                    } ?: error("could not open the chosen document")
+                }
+            }
+            busy = false
+            status = outcome.fold(
+                onSuccess = { result ->
+                    if (result.fileCount == 0) {
+                        resources.getString(com.fioiu8.dshpocket.R.string.backup_empty)
+                    } else {
+                        resources.getString(com.fioiu8.dshpocket.R.string.backup_export_done, result.fileCount)
+                    }
+                },
+                onFailure = { resources.getString(com.fioiu8.dshpocket.R.string.backup_failed, it.message.orEmpty()) },
+            )
+        }
+    }
+
+    val importLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri != null) pendingRestore = uri
+    }
+
+    fun doRestore(uri: Uri) {
+        busy = true
+        status = null
+        scope.launch {
+            val outcome = withContext(Dispatchers.IO) {
+                runCatching {
+                    context.contentResolver.openInputStream(uri)?.use { input ->
+                        BackupManager.restore(input, EnginePaths.dshHome(context))
+                    } ?: error("could not open the chosen document")
+                }
+            }
+            busy = false
+            status = outcome.fold(
+                onSuccess = { result ->
+                    when (result) {
+                        is BackupManager.RestoreOutcome.Done ->
+                            resources.getString(com.fioiu8.dshpocket.R.string.backup_restore_done, result.fileCount)
+                        is BackupManager.RestoreOutcome.BadArchive ->
+                            resources.getString(com.fioiu8.dshpocket.R.string.backup_bad_archive, result.reason)
+                    }
+                },
+                onFailure = { resources.getString(com.fioiu8.dshpocket.R.string.backup_failed, it.message.orEmpty()) },
+            )
+        }
+    }
+
+    val engineStopped = state is EngineState.Idle || state is EngineState.Failed
+    Column(Modifier.fillMaxWidth().padding(horizontal = DshSpacing.page)) {
+        ListItem(
+            headlineContent = { Text(stringResource(com.fioiu8.dshpocket.R.string.backup_export)) },
+            supportingContent = { Text(stringResource(com.fioiu8.dshpocket.R.string.backup_export_supporting)) },
+            leadingContent = { Icon(Icons.Filled.Folder, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+            modifier = Modifier
+                .heightIn(min = DshSpacing.touchTarget)
+                .clickable(enabled = !busy) {
+                    val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
+                    exportLauncher.launch("dsh-pocket-backup-$stamp.zip")
+                },
+        )
+        ListItem(
+            headlineContent = { Text(stringResource(com.fioiu8.dshpocket.R.string.backup_restore)) },
+            supportingContent = {
+                Text(
+                    if (engineStopped) stringResource(com.fioiu8.dshpocket.R.string.backup_restore_supporting)
+                    else stringResource(com.fioiu8.dshpocket.R.string.backup_restore_needs_stop),
+                    color = if (engineStopped) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error,
+                )
+            },
+            leadingContent = { Icon(Icons.Filled.Refresh, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+            modifier = Modifier
+                .heightIn(min = DshSpacing.touchTarget)
+                .clickable(enabled = !busy && engineStopped) {
+                    importLauncher.launch(arrayOf("application/zip", "application/octet-stream", "application/x-zip-compressed"))
+                },
+        )
+        if (busy) {
+            HelperText(stringResource(com.fioiu8.dshpocket.R.string.backup_working))
+        }
+        status?.let { HelperText(it) }
+    }
+
+    pendingRestore?.let { uri ->
+        AlertDialog(
+            onDismissRequest = { pendingRestore = null },
+            title = { Text(stringResource(com.fioiu8.dshpocket.R.string.backup_restore_confirm_title)) },
+            text = { Text(stringResource(com.fioiu8.dshpocket.R.string.backup_restore_confirm_body)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        pendingRestore = null
+                        doRestore(uri)
+                    },
+                ) { Text(stringResource(com.fioiu8.dshpocket.R.string.backup_restore)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingRestore = null }) { Text(stringResource(com.fioiu8.dshpocket.R.string.cancel)) }
+            },
+        )
+    }
 }

@@ -131,6 +131,20 @@
     <string name="plugins_change_restart">Applied — restart the engine to finish applying it.</string>
     <string name="plugins_change_cancelled">Cancelled — files were restored.</string>
     <string name="plugins_change_failed">Failed (%1$s)</string>
+    <string name="settings_backup_section">Backup and restore</string>
+    <string name="backup_export">Export engine data</string>
+    <string name="backup_export_supporting">Sessions and engine settings as a .zip; credentials are excluded. Stop the engine first for a consistent copy.</string>
+    <string name="backup_restore">Restore from backup</string>
+    <string name="backup_restore_supporting">Replaces the engine data with the archive. API keys are not in the archive and must be entered again.</string>
+    <string name="backup_restore_needs_stop">Stop the engine before restoring.</string>
+    <string name="backup_working">Working…</string>
+    <string name="backup_export_done">Exported %1$d files.</string>
+    <string name="backup_empty">Nothing to export yet — the engine has no data.</string>
+    <string name="backup_restore_done">Restored %1$d files. Start the engine to use them.</string>
+    <string name="backup_bad_archive">Not a usable backup: %1$s</string>
+    <string name="backup_failed">Operation failed: %1$s</string>
+    <string name="backup_restore_confirm_title">Restore and replace engine data?</string>
+    <string name="backup_restore_confirm_body">The current sessions and engine settings are replaced by the archive contents. This cannot be undone. The engine must be stopped; API keys are not restored and have to be entered again.</string>
 
 
 
