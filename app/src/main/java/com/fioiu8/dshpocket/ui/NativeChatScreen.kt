@@ -186,6 +186,9 @@ private fun defaultNativeChatStyle(dark: Boolean) = NativeChatStyle(
     fontScale = 1f,
 )
 
+/** Draft slot key for a fresh, not-yet-created conversation. */
+private const val DRAFT_NEW_SLOT = "new"
+
 @Composable
 fun NativeChatScreen(
     state: EngineState,
@@ -196,6 +199,8 @@ fun NativeChatScreen(
     onPendingSessionConsumed: () -> Unit = {},
     initialSessionId: String? = null,
     onSessionIdChanged: (String?) -> Unit = {},
+    chatDrafts: Map<String, String> = emptyMap(),
+    onChatDraftChange: (String, String) -> Unit = { _, _ -> },
 ) {
     val context = LocalContext.current
     val ready = state as? EngineState.Ready
@@ -217,7 +222,10 @@ fun NativeChatScreen(
     var sessionId by rememberSaveable { mutableStateOf<String?>(initialSessionId) }
     LaunchedEffect(sessionId) { onSessionIdChanged(sessionId) }
     var messages by remember { mutableStateOf<List<NativeChatMessage>>(emptyList()) }
-    var draft by rememberSaveable { mutableStateOf("") }
+    // Composer drafts live per conversation slot ("new" for a fresh chat), so typing in
+    // one conversation never leaks into another and a new chat auto-fills its slot.
+    val draft = chatDrafts[sessionId ?: DRAFT_NEW_SLOT].orEmpty()
+    fun updateDraft(text: String) = onChatDraftChange(sessionId ?: DRAFT_NEW_SLOT, text)
     var running by remember { mutableStateOf(false) }
     var liveAssistantText by remember { mutableStateOf("") }
     var liveThinking by remember { mutableStateOf<LiveThinking?>(null) }
@@ -480,7 +488,7 @@ fun NativeChatScreen(
             }
             is PromptOutcome.Failed -> {
                 error = "${labelSendFailed}: ${outcome.message}"
-                if (outcome.restoreDraft && draft.isBlank()) draft = outcome.text
+                if (outcome.restoreDraft && draft.isBlank()) updateDraft(outcome.text)
             }
             null -> {}
         }
@@ -545,7 +553,16 @@ fun NativeChatScreen(
                         Icon(Icons.AutoMirrored.Filled.Chat, contentDescription = stringResource(com.fioiu8.dshpocket.R.string.native_select_session), modifier = Modifier.size(DshSpacing.icon))
                     }
                     IconButton(
-                        onClick = { sessionId = null; messages = emptyList(); liveAssistantText = ""; error = null },
+                        onClick = {
+                            // 用户命名行为：输入框有内容时新建会话，内容保留给新会话槽，
+                            // 下次新建会话自动填充；当前会话槽清空，避免回切时残留。
+                            val currentSlot = sessionId ?: DRAFT_NEW_SLOT
+                            if (currentSlot != DRAFT_NEW_SLOT && draft.isNotBlank()) {
+                                onChatDraftChange(DRAFT_NEW_SLOT, draft)
+                                onChatDraftChange(currentSlot, "")
+                            }
+                            sessionId = null; messages = emptyList(); liveAssistantText = ""; error = null
+                        },
                         modifier = Modifier.size(DshSpacing.touchTarget),
                     ) {
                         Icon(Icons.Filled.Add, contentDescription = stringResource(com.fioiu8.dshpocket.R.string.native_new_chat), modifier = Modifier.size(DshSpacing.icon))
@@ -653,7 +670,7 @@ fun NativeChatScreen(
                     ChatComposer(
                         value = draft,
                         suggestions = suggestions,
-                        onValueChange = { draft = it },
+                        onValueChange = { updateDraft(it) },
                         sending = promptInFlight,
                         running = running,
                         // ready is smart-cast non-null inside this branch.
@@ -679,7 +696,7 @@ fun NativeChatScreen(
                             val text = draft.trim()
                             val engine = ready
                             if (text.isNotEmpty() && !promptInFlight && engine != null) {
-                                draft = ""
+                                updateDraft("")
                                 error = null
                                 sessionViewModel.sendPrompt(
                                     engine = engine,

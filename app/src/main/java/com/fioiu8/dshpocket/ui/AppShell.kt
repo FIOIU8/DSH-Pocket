@@ -82,6 +82,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -186,6 +187,14 @@ private fun saveNativeChatPreferences(context: android.content.Context, preferen
         .apply()
 }
 
+/** Flat key/value pairs survive process death; a list sidesteps nested-map saver edge cases. */
+private val chatDraftsSaver = Saver<Map<String, String>, List<String>>(
+    save = { map -> map.flatMap { listOf(it.key, it.value) } },
+    restore = { pairs ->
+        if (pairs.size % 2 == 0) pairs.chunked(2).associate { it[0] to it[1] } else emptyMap()
+    },
+)
+
 @Composable
 fun AppShell(
     controller: EngineController,
@@ -231,6 +240,11 @@ fun AppShell(
     // A session picked on the sessions screen is parked here until the chat screen has
     // adopted it, so "打开" actually opens that conversation instead of just switching tabs.
     var pendingOpenSessionId by rememberSaveable { mutableStateOf<String?>(null) }
+    // Per-conversation composer drafts (user-named behavior): typing in one conversation
+    // never leaks into another, and a new chat preserves the typed text into the "new"
+    // slot so the next new chat auto-fills it. Hoisted here because the chat screen
+    // leaves composition when another destination opens.
+    var chatDrafts by rememberSaveable(stateSaver = chatDraftsSaver) { mutableStateOf(emptyMap<String, String>()) }
 
     // Shared per process, so the home card and the session screen read one source of
     // truth and the poll loop runs once instead of once per screen. The archive store
@@ -524,6 +538,10 @@ fun AppShell(
                         onPendingSessionConsumed = { pendingOpenSessionId = null },
                         initialSessionId = restoredChatSessionId,
                         onSessionIdChanged = { restoredChatSessionId = it },
+                        chatDrafts = chatDrafts,
+                        onChatDraftChange = { slot, text ->
+                            chatDrafts = if (text.isEmpty()) chatDrafts - slot else chatDrafts + (slot to text)
+                        },
                     )
                 } else {
                     ChatScreen(
