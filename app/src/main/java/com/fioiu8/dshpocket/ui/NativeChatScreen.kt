@@ -50,8 +50,6 @@ import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -236,6 +234,13 @@ fun NativeChatScreen(
     var showModelPicker by remember { mutableStateOf(false) }
     var pickerModel by remember { mutableStateOf<NativeModelOption?>(null) }
     var modelOptions by remember { mutableStateOf<List<NativeModelOption>>(emptyList()) }
+    // Display name for the composer's model chip; read from the modelSelection projection.
+    var currentModelName by remember { mutableStateOf<String?>(null) }
+    // Message editing (user-named behavior): a user message edit forks the session before
+    // that message and re-prompts (everything after it is discarded); an assistant message
+    // edit rewrites the message in place through session/editMessage.
+    var editingMessageId by remember { mutableStateOf<String?>(null) }
+    var editInFlight by remember { mutableStateOf(false) }
     var loadedCursor by remember(sessionId) { mutableLongStateOf(-2L) }
     var style by remember(darkTheme) { mutableStateOf(defaultNativeChatStyle(darkTheme)) }
     // `session/page` never serves tool/call events; this store keeps the ones the live
@@ -303,6 +308,11 @@ fun NativeChatScreen(
             error = labelSessionLoadFailed + ": response cursor missing"
             return
         }
+        // The modelSelection projection rides the same response; `next` is pending ?? lastUsed.
+        val selection = projection?.optJSONObject("values")?.optJSONObject("modelSelection")?.optJSONObject("next")
+        currentModelName = selection?.optString("model")
+            ?.takeIf(String::isNotBlank)
+            ?.let { id -> modelOptions.firstOrNull { it.modelId == id }?.name ?: id }
         running = sessions.firstOrNull { it.id == id }?.running ?: false
         if (cursor == loadedCursor) return
         val pageResult = chatRpc(
@@ -571,12 +581,6 @@ fun NativeChatScreen(
                 onMenu = onMenu,
                 subtitle = stringResource(com.fioiu8.dshpocket.R.string.native_subtitle),
                 actions = {
-                    IconButton(
-                        onClick = { showModelPicker = true; pickerModel = null },
-                        modifier = Modifier.size(DshSpacing.touchTarget),
-                    ) {
-                        Icon(Icons.Filled.Tune, contentDescription = stringResource(com.fioiu8.dshpocket.R.string.native_select_model_effort), modifier = Modifier.size(DshSpacing.icon))
-                    }
                     IconButton(onClick = { showSessions = true }, modifier = Modifier.size(DshSpacing.touchTarget)) {
                         Icon(Icons.AutoMirrored.Filled.Chat, contentDescription = stringResource(com.fioiu8.dshpocket.R.string.native_select_session), modifier = Modifier.size(DshSpacing.icon))
                     }
@@ -698,11 +702,14 @@ fun NativeChatScreen(
                     ChatComposer(
                         value = draft,
                         suggestions = suggestions,
+                        modelName = currentModelName,
                         onValueChange = { updateDraft(it) },
-                        sending = promptInFlight,
+                        // An in-flight edit (fork + re-prompt) blocks composer input too.
+                        sending = promptInFlight || editInFlight,
                         running = running,
                         // ready is smart-cast non-null inside this branch.
                         enabled = true,
+                        onPickModel = { showModelPicker = true; pickerModel = null },
                         onCancel = {
                             val id = sessionId
                             val engine = ready
@@ -822,6 +829,7 @@ fun NativeChatScreen(
                                             is RpcResult.Err -> error = "${labelSwitchModelFailed}: ${result.message}"
                                             is RpcResult.Ok -> {
                                                 error = null
+                                                currentModelName = option.name
                                                 showModelPicker = false
                                                 pickerModel = null
                                             }
@@ -973,16 +981,15 @@ private fun formatMessageTime(rawTime: Long, locale: Locale): String {
 private fun ChatComposer(
     value: String,
     suggestions: List<String>,
+    modelName: String?,
     onValueChange: (String) -> Unit,
     sending: Boolean,
     running: Boolean,
     enabled: Boolean,
     onCancel: () -> Unit,
+    onPickModel: () -> Unit,
     onSend: () -> Unit,
 ) {
-    val clipboard = LocalClipboard.current
-    val scope = rememberCoroutineScope()
-    var showMore by remember { mutableStateOf(false) }
     Column {
         if (suggestions.isNotEmpty()) {
             Row(
@@ -1036,31 +1043,34 @@ private fun ChatComposer(
                     modifier = Modifier.fillMaxWidth().padding(top = 14.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Icon(Icons.Filled.AutoAwesome, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(25.dp))
-                    Spacer(Modifier.weight(1f))
-                    Box {
-                        IconButton(onClick = { showMore = true }, modifier = Modifier.size(44.dp)) {
-                            Icon(Icons.Filled.Add, contentDescription = stringResource(com.fioiu8.dshpocket.R.string.more_actions), tint = MaterialTheme.colorScheme.onSurface)
-                        }
-                        DropdownMenu(expanded = showMore, onDismissRequest = { showMore = false }) {
-                            DropdownMenuItem(
-                                text = { Text(stringResource(com.fioiu8.dshpocket.R.string.paste_clipboard)) },
-                                onClick = {
-                                    scope.launch {
-                                        val pasted = clipboard.getClipEntry()?.clipData
-                                            ?.takeIf { it.itemCount > 0 }
-                                            ?.getItemAt(0)?.text
-                                        if (pasted != null) onValueChange(value + pasted)
-                                    }
-                                    showMore = false
-                                },
-                            )
-                            DropdownMenuItem(
-                                text = { Text(stringResource(com.fioiu8.dshpocket.R.string.clear)) },
-                                onClick = { onValueChange(""); showMore = false },
-                            )
-                        }
+                    // Model switch lives here, where the conversation happens; the picker
+                    // dialog keeps its two-step model → effort flow.
+                    TextButton(
+                        onClick = onPickModel,
+                        modifier = Modifier.widthIn(max = 240.dp),
+                    ) {
+                        Icon(
+                            Icons.Filled.Tune,
+                            contentDescription = stringResource(com.fioiu8.dshpocket.R.string.native_select_model_effort),
+                            modifier = Modifier.size(16.dp),
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                        Spacer(Modifier.size(6.dp))
+                        Text(
+                            modelName ?: stringResource(com.fioiu8.dshpocket.R.string.native_select_model),
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Icon(
+                            Icons.Filled.ExpandMore,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
+                    Spacer(Modifier.weight(1f))
                     if (running) {
                         FilledIconButton(onClick = onCancel, modifier = Modifier.size(48.dp)) {
                             Icon(Icons.Filled.Stop, contentDescription = stringResource(com.fioiu8.dshpocket.R.string.stop))
