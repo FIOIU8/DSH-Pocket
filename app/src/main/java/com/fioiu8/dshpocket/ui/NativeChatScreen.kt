@@ -195,6 +195,8 @@ fun NativeChatScreen(
     preferences: NativeChatPreferences = NativeChatPreferences(),
     pendingOpenSessionId: String? = null,
     onPendingSessionConsumed: () -> Unit = {},
+    initialSessionId: String? = null,
+    onSessionIdChanged: (String?) -> Unit = {},
 ) {
     val context = LocalContext.current
     val ready = state as? EngineState.Ready
@@ -213,7 +215,8 @@ fun NativeChatScreen(
     val createdSessionId by sessionViewModel.createdSessionId.collectAsState()
     var sessions by remember { mutableStateOf<List<NativeChatSession>>(emptyList()) }
     // Seeded from NavigationMemory so an exit-reopen returns to the same conversation.
-    var sessionId by rememberSaveable { mutableStateOf<String?>(null) }
+    var sessionId by rememberSaveable { mutableStateOf<String?>(initialSessionId) }
+    LaunchedEffect(sessionId) { onSessionIdChanged(sessionId) }
     var messages by remember { mutableStateOf<List<NativeChatMessage>>(emptyList()) }
     var draft by rememberSaveable { mutableStateOf("") }
     var running by remember { mutableStateOf(false) }
