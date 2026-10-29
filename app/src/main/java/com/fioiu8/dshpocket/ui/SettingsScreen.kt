@@ -66,6 +66,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalResources
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.res.stringResource
@@ -823,6 +824,7 @@ private fun BackupSection(state: EngineState) {
 @Composable
 private fun ScreenControlSection(onChanged: () -> Unit) {
     val context = LocalContext.current
+    val resources = LocalResources.current
     val settings = remember { com.fioiu8.dshpocket.screen.ScreenControlSettings(context) }
     val audit = remember { com.fioiu8.dshpocket.screen.ScreenAuditLog(context) }
     val scope = rememberCoroutineScope()
@@ -981,9 +983,9 @@ private fun ScreenControlSection(onChanged: () -> Unit) {
                                             null,
                                         )
                                         if (verdict.available) {
-                                            context.getString(com.fioiu8.dshpocket.R.string.sc_review_test_ok, verdict.dangerous.toString())
+                                            resources.getString(com.fioiu8.dshpocket.R.string.sc_review_test_ok, verdict.dangerous.toString())
                                         } else {
-                                            context.getString(com.fioiu8.dshpocket.R.string.sc_review_test_fail, verdict.reason)
+                                            resources.getString(com.fioiu8.dshpocket.R.string.sc_review_test_fail, verdict.reason)
                                         }
                                     }
                                     testing = false
@@ -1085,9 +1087,10 @@ private fun ScreenControlSection(onChanged: () -> Unit) {
         ),
     )
     if (auditEntries.isNotEmpty()) {
+        val locale = LocalConfiguration.current.locales[0]
         Column(Modifier.padding(horizontal = DshSpacing.page)) {
             auditEntries.take(8).forEach { entry ->
-                val time = SimpleDateFormat("MM-dd HH:mm:ss", Locale.getDefault()).format(Date(entry.timestamp))
+                val time = SimpleDateFormat("MM-dd HH:mm:ss", locale).format(Date(entry.timestamp))
                 Text(
                     "$time · ${entry.action} · ${entry.outcome} · ${entry.reason.take(24)}" + (entry.message?.let { " · ${it.take(40)}" } ?: ""),
                     style = MaterialTheme.typography.bodySmall,

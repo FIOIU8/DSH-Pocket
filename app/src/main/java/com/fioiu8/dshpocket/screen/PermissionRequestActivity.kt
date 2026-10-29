@@ -32,7 +32,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.fioiu8.dshpocket.ui.theme.DSHPocketTheme
@@ -135,7 +135,6 @@ private fun PermissionAskContent(
     onCancel: () -> Unit,
     onAllGranted: () -> Unit,
 ) {
-    val context = LocalContext.current
     var states by remember { mutableStateOf(grantedStates()) }
 
     // The accessibility service binds a beat after the user flips it in system
@@ -161,16 +160,16 @@ private fun PermissionAskContent(
         Card(modifier = Modifier.padding(24.dp).widthIn(max = 480.dp)) {
             Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(
-                    text = context.getString(com.fioiu8.dshpocket.R.string.perm_ask_title),
+                    text = stringResource(com.fioiu8.dshpocket.R.string.perm_ask_title),
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.SemiBold,
                 )
                 Text(
-                    text = context.getString(com.fioiu8.dshpocket.R.string.perm_ask_reason, ask.reason),
+                    text = stringResource(com.fioiu8.dshpocket.R.string.perm_ask_reason, ask.reason),
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 Text(
-                    text = context.getString(com.fioiu8.dshpocket.R.string.perm_ask_hint),
+                    text = stringResource(com.fioiu8.dshpocket.R.string.perm_ask_hint),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -187,11 +186,11 @@ private fun PermissionAskContent(
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    text = permissionLabel(context, permission),
+                                    text = permissionLabel(permission),
                                     style = MaterialTheme.typography.bodyLarge,
                                 )
                                 Text(
-                                    text = permissionDescription(context, permission),
+                                    text = permissionDescription(permission),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
@@ -214,21 +213,23 @@ private fun PermissionAskContent(
                         .fillMaxWidth()
                         .padding(top = 10.dp),
                 ) {
-                    Text(context.getString(com.fioiu8.dshpocket.R.string.perm_ask_cancel))
+                    Text(stringResource(com.fioiu8.dshpocket.R.string.perm_ask_cancel))
                 }
             }
         }
     }
 }
 
-private fun permissionLabel(context: Context, permission: ScreenPermission): String = when (permission) {
-    ScreenPermission.ACCESSIBILITY -> context.getString(com.fioiu8.dshpocket.R.string.perm_name_accessibility)
-    ScreenPermission.OVERLAY -> context.getString(com.fioiu8.dshpocket.R.string.perm_name_overlay)
-    ScreenPermission.ALL_FILES -> context.getString(com.fioiu8.dshpocket.R.string.perm_name_all_files)
+@Composable
+private fun permissionLabel(permission: ScreenPermission): String = when (permission) {
+    ScreenPermission.ACCESSIBILITY -> stringResource(com.fioiu8.dshpocket.R.string.perm_name_accessibility)
+    ScreenPermission.OVERLAY -> stringResource(com.fioiu8.dshpocket.R.string.perm_name_overlay)
+    ScreenPermission.ALL_FILES -> stringResource(com.fioiu8.dshpocket.R.string.perm_name_all_files)
 }
 
-private fun permissionDescription(context: Context, permission: ScreenPermission): String = when (permission) {
-    ScreenPermission.ACCESSIBILITY -> context.getString(com.fioiu8.dshpocket.R.string.perm_desc_accessibility)
-    ScreenPermission.OVERLAY -> context.getString(com.fioiu8.dshpocket.R.string.perm_desc_overlay)
-    ScreenPermission.ALL_FILES -> context.getString(com.fioiu8.dshpocket.R.string.perm_desc_all_files)
+@Composable
+private fun permissionDescription(permission: ScreenPermission): String = when (permission) {
+    ScreenPermission.ACCESSIBILITY -> stringResource(com.fioiu8.dshpocket.R.string.perm_desc_accessibility)
+    ScreenPermission.OVERLAY -> stringResource(com.fioiu8.dshpocket.R.string.perm_desc_overlay)
+    ScreenPermission.ALL_FILES -> stringResource(com.fioiu8.dshpocket.R.string.perm_desc_all_files)
 }
