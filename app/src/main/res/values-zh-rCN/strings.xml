@@ -1,4 +1,25 @@
 <resources>
+    <string name="native_retry">重试</string>
+    <string name="native_reconnect">重新连接</string>
+    <string name="native_regenerate">重新生成</string>
+    <string name="native_copy_error">复制错误详情</string>
+    <string name="native_error_copied">已复制错误详情</string>
+    <string name="native_error_details">查看错误详情</string>
+    <string name="native_stream_retrying">正在重新连接…</string>
+    <string name="native_stream_retrying_attempt">正在重新连接（%1$d/3）</string>
+    <string name="native_stream_connected">已连接</string>
+    <string name="native_stream_connecting">正在连接</string>
+    <string name="native_stream_disconnected">连接已断开</string>
+    <string name="native_turn_failed">回合失败</string>
+    <string name="native_tool_failed">工具执行失败</string>
+    <string name="native_agent">助手</string>
+    <string name="native_status_running">正在运行</string>
+    <string name="native_status_sending">正在发送</string>
+    <string name="native_status_ready">就绪</string>
+    <string name="native_draft_restored">草稿已恢复，请检查后重新发送。</string>
+    <string name="native_turn_blocked">请求被拦截</string>
+    <string name="native_turn_max_tokens">已达到 Token 上限</string>
+    <string name="native_turn_interrupted">回合已中断</string>
     <string name="app_name">DSH Pocket</string>
     <string name="nav_home">首页</string><string name="nav_chat">对话</string><string name="nav_sessions">会话管理</string><string name="nav_plugins">插件管理</string><string name="nav_models">模型配置</string><string name="nav_settings">设置</string>
     <string name="open_navigation_drawer">打开导航抽屉</string><string name="back_to_settings">返回设置</string><string name="search">搜索</string><string name="refresh">刷新</string><string name="clear">清空</string><string name="more_actions">更多操作</string><string name="cancel">取消</string><string name="open">打开</string><string name="save">保存</string><string name="saving">保存中…</string><string name="delete">删除</string><string name="set">设置</string><string name="change">更换</string><string name="remove">清除</string><string name="back">返回</string><string name="loading">加载中</string><string name="error_unknown">未知错误</string>

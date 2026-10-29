@@ -32,8 +32,20 @@ sealed interface PromptOutcome {
         val text: String,
         val message: String,
         val restoreDraft: Boolean,
+        val code: String = "unknown",
+        val details: String = message,
+        val requestId: String? = null,
+        val retryable: Boolean = false,
     ) : PromptOutcome
 }
+
+private data class PendingPrompt(
+    val text: String,
+    val sessionId: String?,
+    val requestId: String,
+    val restoreDraft: Boolean,
+    val workspacePath: String?,
+)
 
 /**
  * Adapter between [SessionRepository] and the composables.
@@ -59,6 +71,7 @@ class SessionViewModel(
 
     private val _createdSessionId = MutableStateFlow<String?>(null)
     val createdSessionId: StateFlow<String?> = _createdSessionId.asStateFlow()
+    private var pendingPrompt: PendingPrompt? = null
 
     fun refresh() {
         viewModelScope.launch { repository.refresh() }
@@ -93,57 +106,115 @@ class SessionViewModel(
         restoreDraft: Boolean = true,
     ) {
         if (_promptInFlight.value) return
+        pendingPrompt = PendingPrompt(text, sessionId, UUID.randomUUID().toString(), restoreDraft, workspacePath)
+        submitPrompt(engine)
+    }
+
+    /** Reuses the original request id, allowing the engine to deduplicate an uncertain retry. */
+    fun retryPrompt(engine: EngineState.Ready) {
+        if (_promptInFlight.value || pendingPrompt == null) return
+        submitPrompt(engine)
+    }
+
+    private fun submitPrompt(engine: EngineState.Ready) {
+        val pending = pendingPrompt ?: return
         viewModelScope.launch {
             _promptInFlight.value = true
             try {
-                var targetId = sessionId
+                var targetId = pending.sessionId
                 if (targetId == null) {
-                    val create = EngineApi.rpc(
-                        engine.baseUrl,
-                        "session/create",
-                        EngineApi.requestArgs(JSONObject().put("cwd", workspacePath)),
-                        engine.token,
-                    )
+                    val create = safeRpc {
+                        EngineApi.rpc(
+                                    engine.baseUrl,
+                                    "session/create",
+                                    EngineApi.requestArgs(JSONObject().put("cwd", pending.workspacePath)),
+                                    engine.token,
+                        )
+                    }
                     targetId = ((create as? RpcResult.Ok)?.value as? JSONObject)
                         ?.optString("sessionId")
                         ?.takeIf { it.isNotBlank() }
                     if (targetId == null) {
                         _promptOutcome.value = PromptOutcome.Failed(
-                            sessionId,
-                            text,
+                            pending.sessionId,
+                            pending.text,
                             (create as? RpcResult.Err)?.message ?: "session/create returned no sessionId",
-                            restoreDraft,
+                            pending.restoreDraft,
+                            code = (create as? RpcResult.Err)?.code ?: "protocol",
+                            details = (create as? RpcResult.Err)?.details ?: "session/create returned no sessionId",
+                            requestId = (create as? RpcResult.Err)?.requestId ?: pending.requestId,
+                            retryable = (create as? RpcResult.Err)?.retryable ?: false,
                         )
                         return@launch
                     }
                     _createdSessionId.value = targetId
+                    pendingPrompt = pending.copy(sessionId = targetId)
                 }
-                val result = EngineApi.rpc(
-                    engine.baseUrl,
-                    "session/prompt",
-                    EngineApi.requestArgs(
-                        JSONObject()
-                            .put("requestId", UUID.randomUUID().toString())
-                            .put("sessionId", targetId)
-                            .put("mode", "queue")
-                            .put("content", JSONArray().put(JSONObject().put("type", "text").put("text", text)))
-                            .put("clientTimeZone", validClientTimeZone()),
-                    ),
-                    engine.token,
-                )
+                val result = safeRpc {
+                    EngineApi.rpc(
+                        engine.baseUrl,
+                        "session/prompt",
+                        EngineApi.requestArgs(
+                            JSONObject()
+                                .put("requestId", pending.requestId)
+                                .put("sessionId", targetId)
+                                .put("mode", "queue")
+                                .put("content", JSONArray().put(JSONObject().put("type", "text").put("text", pending.text)))
+                                .put("clientTimeZone", validClientTimeZone()),
+                        ),
+                        engine.token,
+                    )
+                }
                 _promptOutcome.value = when (result) {
-                    is RpcResult.Ok -> PromptOutcome.Delivered(targetId)
-                    is RpcResult.Err -> PromptOutcome.Failed(targetId, text, result.message, restoreDraft)
+                    is RpcResult.Ok -> {
+                        pendingPrompt = null
+                        PromptOutcome.Delivered(targetId)
+                    }
+                    is RpcResult.Err -> PromptOutcome.Failed(
+                        targetId,
+                        pending.text,
+                        result.message,
+                        pending.restoreDraft,
+                        result.code,
+                        result.details,
+                        pending.requestId,
+                        result.retryable,
+                    )
                 }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                _promptOutcome.value = PromptOutcome.Failed(
+                    pending.sessionId,
+                    pending.text,
+                    failure.message ?: failure.javaClass.simpleName,
+                    pending.restoreDraft,
+                    "transport",
+                    failure.message ?: failure.javaClass.simpleName,
+                    pending.requestId,
+                    true,
+                )
             } finally {
                 _promptInFlight.value = false
             }
         }
     }
 
+    private suspend fun safeRpc(block: suspend () -> RpcResult): RpcResult = try {
+        block()
+    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+        throw cancelled
+    } catch (failure: Exception) {
+        RpcResult.Err("transport", failure.message ?: failure.javaClass.simpleName, retryable = true)
+    }
+
     /** One-shot consumption hooks; the screen clears state after acting on it. */
     fun consumePromptOutcome() {
         _promptOutcome.value = null
+    }
+
+    fun consumeDeliveredPrompt() {
+        if (_promptOutcome.value is PromptOutcome.Delivered) pendingPrompt = null
     }
 
     fun consumeCreatedSession() {

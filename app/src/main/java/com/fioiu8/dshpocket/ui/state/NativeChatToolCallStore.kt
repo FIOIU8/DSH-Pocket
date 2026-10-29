@@ -26,12 +26,14 @@ class NativeChatToolCallStore(private val directory: File) {
         val callId: String,
         val name: String,
         val arguments: String,
+        val turn: Int? = null,
     ) {
         fun toJson(): JSONObject = JSONObject()
             .put("seq", seq)
             .put("callId", callId)
             .put("name", name)
             .put("arguments", arguments)
+            .apply { turn?.let { put("turn", it) } }
 
         companion object {
             fun fromJson(root: JSONObject): Entry? {
@@ -41,6 +43,7 @@ class NativeChatToolCallStore(private val directory: File) {
                     callId = callId,
                     name = root.optString("name").ifBlank { "unknown" },
                     arguments = root.optString("arguments"),
+                    turn = root.optInt("turn").takeIf { root.has("turn") },
                 )
             }
         }

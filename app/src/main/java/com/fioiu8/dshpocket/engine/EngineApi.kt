@@ -15,6 +15,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.IOException
+import java.net.SocketTimeoutException
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.UUID
@@ -43,7 +44,13 @@ object EngineApi {
     /** One server outcome: `value` is whatever the endpoint returns (object/array/primitive). */
     sealed interface RpcResult {
         data class Ok(val value: Any?) : RpcResult
-        data class Err(val code: String, val message: String) : RpcResult
+        data class Err(
+            val code: String,
+            val message: String,
+            val details: String = message,
+            val requestId: String? = null,
+            val retryable: Boolean = isRetryableCode(code),
+        ) : RpcResult
     }
 
     /** Default response budget for engine RPCs. */
@@ -73,25 +80,30 @@ object EngineApi {
         launchToken: String? = null,
         readTimeoutMillis: Int = DEFAULT_READ_TIMEOUT_MS,
     ): RpcResult = withContext(Dispatchers.IO) {
+        val requestId = "native-${System.nanoTime()}"
         try {
-            var response = exchange(baseUrl, endpoint, args, readTimeoutMillis)
+            var response = exchange(baseUrl, endpoint, args, readTimeoutMillis, requestId)
             if (response.status == 401 && !launchToken.isNullOrBlank()) {
                 if (SessionCookie.establish(baseUrl, launchToken)) {
-                    response = exchange(baseUrl, endpoint, args, readTimeoutMillis)
+                    response = exchange(baseUrl, endpoint, args, readTimeoutMillis, requestId)
                 }
             }
             parse(response)
-        } catch (e: IOException) {
-            RpcResult.Err("transport", e.message.orEmpty().ifBlank { e.javaClass.simpleName })
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            val code = if (e is SocketTimeoutException) "timeout" else "transport"
+            val message = safeDiagnostic(e.message.orEmpty().ifBlank { e.javaClass.simpleName })
+            RpcResult.Err(code, message, safeDiagnostic("${e.javaClass.simpleName}: $message"), requestId, retryable = true)
         }
     }
 
-    private class RawResponse(val status: Int, val body: String)
+    internal class RawResponse(val status: Int, val body: String, val requestId: String)
 
-    private fun exchange(baseUrl: String, endpoint: String, args: JSONObject, readTimeoutMillis: Int): RawResponse {
+    private fun exchange(baseUrl: String, endpoint: String, args: JSONObject, readTimeoutMillis: Int, requestId: String): RawResponse {
         val envelope = JSONObject()
             .put("type", "client-request")
-            .put("rpcId", "native-${System.nanoTime()}")
+            .put("rpcId", requestId)
             .put("method", endpoint)
             .put("payload", JSONObject().put("args", args))
         val connection = (URL("$baseUrl/api/$endpoint").openConnection() as HttpURLConnection).apply {
@@ -112,30 +124,55 @@ object EngineApi {
                 connection.errorStream
             }
             val text = stream?.bufferedReader()?.use(BufferedReader::readText).orEmpty()
-            return RawResponse(connection.responseCode, text)
+            return RawResponse(connection.responseCode, text, requestId)
         } finally {
             connection.disconnect()
         }
     }
 
-    private fun parse(response: RawResponse): RpcResult {
+    internal fun parse(response: RawResponse): RpcResult {
         if (response.status != 200) {
-            return RpcResult.Err("http/${response.status}", response.body.take(200).ifBlank { "HTTP ${response.status}" })
+            val code = "http/${response.status}"
+            val detail = safeDiagnostic(response.body.take(2_000).ifBlank { "HTTP ${response.status}" })
+            return RpcResult.Err(code, "HTTP ${response.status}", detail, response.requestId, response.status >= 500 || response.status == 408 || response.status == 429)
         }
         val json = runCatching { JSONObject(response.body) }.getOrNull()
-            ?: return RpcResult.Err("protocol", "Response is not JSON: ${response.body.take(120)}")
+            ?: return RpcResult.Err("protocol", "Response is not JSON", safeDiagnostic(response.body.take(2_000)), response.requestId)
         val result = json.optJSONObject("result")
-            ?: return RpcResult.Err("protocol", "Response lacks the result field")
+            ?: return RpcResult.Err("protocol", "Response lacks the result field", safeDiagnostic(response.body.take(2_000)), response.requestId)
         return if (result.optBoolean("ok")) {
             RpcResult.Ok(result.opt("value"))
         } else {
             val error = result.optJSONObject("error")
+            val code = error?.optString("code").orEmpty().ifBlank { "unknown" }
+            val message = safeDiagnostic(error?.optString("message").orEmpty().ifBlank { "Unknown error" })
+            val requestId = error?.optString("requestId")?.takeIf { it.isNotBlank() && it != "null" }
+            val details = buildString {
+                append("code: ").append(code)
+                append("\nmessage: ").append(message)
+                error?.optString("name")?.takeIf { it.isNotBlank() && it != "null" }?.let { append("\nname: ").append(it) }
+                error?.opt("details")?.let { append("\ndetails: ").append(it) }
+                error?.optString("reason")?.takeIf { it.isNotBlank() && it != "null" }?.let { append("\nreason: ").append(it) }
+            }
             RpcResult.Err(
-                error?.optString("code").orEmpty().ifBlank { "unknown" },
-                error?.optString("message").orEmpty().ifBlank { "Unknown error" },
+                code,
+                message,
+                safeDiagnostic(details),
+                requestId ?: response.requestId,
             )
         }
     }
+
+    /** Redacts credential-shaped values before diagnostic text reaches the UI or clipboard. */
+    internal fun safeDiagnostic(value: String): String = value
+        .replace(Regex("(?i)([\"']?authorization[\"']?\\s*[:=]\\s*[\"']?)(?:bearer\\s+)?[^\"'\\s,;}]+"), "$1[redacted]")
+        .replace(Regex("(?i)([\"']?(?:authorization|cookie|api[_-]?key|access[_-]?token|refresh[_-]?token|launch[_-]?token|password)[\"']?\\s*[:=]\\s*[\"']?)([^\"'\\s,;}]+)"), "$1[redacted]")
+        .replace(Regex("(?i)(cookie\\s*[:=]\\s*)[^\\r\\n]+"), "$1[redacted]")
+        .replace(Regex("(?i)(api[_-]?key|access[_-]?token|refresh[_-]?token|launch[_-]?token|password)(\\s*[:=]\\s*)[^\\s,;]+"), "$1$2[redacted]")
+        .take(4_000)
+
+    internal fun isRetryableCode(code: String): Boolean =
+        code == "transport" || code == "timeout" || code == "closed" || code.startsWith("http/5") || code == "http/408" || code == "http/429"
 
     /** Convenience for endpoints whose single parameter is named `request`. */
     fun requestArgs(request: JSONObject): JSONObject = JSONObject().put("request", request)
@@ -170,34 +207,49 @@ object EngineApi {
             builder.build(),
             object : WebSocketListener() {
                 override fun onOpen(webSocket: WebSocket, response: Response) {
-                    if (!webSocket.send(openFrame.toString())) channel.close(IllegalStateException("Could not open the session event stream"))
+                    if (!webSocket.send(openFrame.toString())) channel.close(
+                        SessionStreamException("stream", "Could not open the session event stream", "The WebSocket rejected the open frame.", streamId),
+                    )
                 }
 
                 override fun onMessage(webSocket: WebSocket, text: String) {
                     val frame = runCatching { JSONObject(text) }.getOrNull()
-                    if (frame == null || frame.optString("streamId") != streamId) return
+                    if (frame == null) {
+                        channel.close(SessionStreamException("protocol", "Invalid session stream response", safeDiagnostic(text), streamId))
+                        return
+                    }
+                    if (frame.optString("streamId") != streamId) return
                     when (frame.optString("type")) {
                         "item" -> (frame.opt("value") as? JSONObject)?.let { channel.trySend(it) }
                         "error" -> {
                             val error = frame.optJSONObject("error")
-                            channel.close(IllegalStateException(error?.optString("message").orEmpty().ifBlank { "Session event stream failed" }))
+                            channel.close(
+                                SessionStreamException(
+                                    error?.optString("code").orEmpty().ifBlank { "stream" },
+                                    safeDiagnostic(error?.optString("message").orEmpty().ifBlank { "Session event stream failed" }),
+                                    safeDiagnostic(error?.toString().orEmpty()),
+                                    error?.optString("requestId")?.takeIf(String::isNotBlank) ?: streamId,
+                                ),
+                            )
                         }
-                        "end" -> channel.close()
+                        "end" -> channel.close(SessionStreamException("closed", "Session event stream ended", "The engine closed the stream.", streamId))
                     }
                 }
 
                 // A server-side close handshake must end the flow too, or the collector
                 // would stay suspended forever after an orderly shutdown.
                 override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
-                    channel.close()
+                    channel.close(SessionStreamException("closed", "Session event stream closed", safeDiagnostic("close code: $code\nreason: $reason"), streamId))
                 }
 
                 override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-                    channel.close()
+                    channel.close(SessionStreamException("closed", "Session event stream closed", safeDiagnostic("close code: $code\nreason: $reason"), streamId))
                 }
 
                 override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                    channel.close(t)
+                    val status = response?.code
+                    val code = if (status != null) "http/$status" else "transport"
+                    channel.close(SessionStreamException(code, safeDiagnostic(t.message.orEmpty().ifBlank { "Session event stream failed" }), safeDiagnostic("${t.javaClass.simpleName}: ${t.message.orEmpty()}${status?.let { "\nHTTP status: $it" }.orEmpty()}"), streamId))
                 }
             },
         )
@@ -207,3 +259,10 @@ object EngineApi {
         }
     }
 }
+
+class SessionStreamException(
+    val code: String,
+    override val message: String,
+    val details: String,
+    val requestId: String? = null,
+) : IOException(message)

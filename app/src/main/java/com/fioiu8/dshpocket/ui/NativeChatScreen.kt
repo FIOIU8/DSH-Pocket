@@ -37,9 +37,11 @@ import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.Public
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Terminal
@@ -128,8 +130,13 @@ data class NativeChatMessage(
     val argumentsText: String? = null,
     val resultText: String? = null,
     val isError: Boolean = false,
+    val errorDetails: String? = null,
+    val errorCode: String? = null,
+    val requestId: String? = null,
+    val retryable: Boolean = false,
     // Set on an assistant message re-inserted by a surface replace (user edit).
     val edited: Boolean = false,
+    val turn: Int? = null,
 ) {
     val isRunningToolCall: Boolean get() = role == "tool_call" && resultText == null
 }
@@ -231,7 +238,9 @@ fun NativeChatScreen(
     var liveAssistantText by remember { mutableStateOf("") }
     var liveThinking by remember { mutableStateOf<LiveThinking?>(null) }
     var loading by remember { mutableStateOf(false) }
-    var error by remember { mutableStateOf<String?>(null) }
+    var chatError by remember { mutableStateOf<ChatErrorState?>(null) }
+    var streamReconnectAttempt by remember(sessionId) { mutableStateOf(0) }
+    var streamConnected by remember(sessionId) { mutableStateOf(false) }
     var showSessions by remember { mutableStateOf(false) }
     var showModelPicker by remember { mutableStateOf(false) }
     var pickerModel by remember { mutableStateOf<NativeModelOption?>(null) }
@@ -270,16 +279,43 @@ fun NativeChatScreen(
     val labelSessionLoadFailed = stringResource(com.fioiu8.dshpocket.R.string.native_session_load_failed)
     val labelEffortDefault = stringResource(com.fioiu8.dshpocket.R.string.native_effort_default)
     val labelAssistPrompt = stringResource(com.fioiu8.dshpocket.R.string.native_assist_prompt)
-    val labelStopFailed = stringResource(com.fioiu8.dshpocket.R.string.native_stop_failed)
-    val labelSendFailed = stringResource(com.fioiu8.dshpocket.R.string.native_send_failed)
     val labelCreateSessionFailed = stringResource(com.fioiu8.dshpocket.R.string.native_create_session_failed)
-    val labelSwitchModelFailed = stringResource(com.fioiu8.dshpocket.R.string.native_switch_model_failed)
     val labelUntitledSession = stringResource(com.fioiu8.dshpocket.R.string.home_untitled_session)
     val labelImageAttachment = stringResource(com.fioiu8.dshpocket.R.string.native_image_attachment)
     val labelFileAttachment = stringResource(com.fioiu8.dshpocket.R.string.native_file_attachment)
     val labelEditFailed = stringResource(com.fioiu8.dshpocket.R.string.native_edit_failed)
     val labelEditResend = stringResource(com.fioiu8.dshpocket.R.string.native_message_edit_resend)
     val labelEditSave = stringResource(com.fioiu8.dshpocket.R.string.native_message_edit_save)
+    val labelRetry = stringResource(com.fioiu8.dshpocket.R.string.native_retry)
+    val labelReconnect = stringResource(com.fioiu8.dshpocket.R.string.native_reconnect)
+    val labelRegenerate = stringResource(com.fioiu8.dshpocket.R.string.native_regenerate)
+    val labelCopyError = stringResource(com.fioiu8.dshpocket.R.string.native_copy_error)
+    val labelErrorCopied = stringResource(com.fioiu8.dshpocket.R.string.native_error_copied)
+    val labelErrorDetails = stringResource(com.fioiu8.dshpocket.R.string.native_error_details)
+    val labelStreamConnected = stringResource(com.fioiu8.dshpocket.R.string.native_stream_connected)
+    val labelStreamDisconnected = stringResource(com.fioiu8.dshpocket.R.string.native_stream_disconnected)
+    val labelTurnFailed = stringResource(com.fioiu8.dshpocket.R.string.native_turn_failed)
+    val labelSendTitle = stringResource(com.fioiu8.dshpocket.R.string.native_send_failed)
+    val labelEditTitle = stringResource(com.fioiu8.dshpocket.R.string.native_edit_failed)
+    val labelStopTitle = stringResource(com.fioiu8.dshpocket.R.string.native_stop_failed)
+    val labelModelTitle = stringResource(com.fioiu8.dshpocket.R.string.native_switch_model_failed)
+    val labelLoadingTitle = stringResource(com.fioiu8.dshpocket.R.string.native_session_load_failed)
+    val labelAgent = stringResource(com.fioiu8.dshpocket.R.string.native_agent)
+    val labelDraftRestored = stringResource(com.fioiu8.dshpocket.R.string.native_draft_restored)
+    val labelTurnBlocked = stringResource(com.fioiu8.dshpocket.R.string.native_turn_blocked)
+    val labelTurnMaxTokens = stringResource(com.fioiu8.dshpocket.R.string.native_turn_max_tokens)
+    val labelTurnInterrupted = stringResource(com.fioiu8.dshpocket.R.string.native_turn_interrupted)
+
+    fun rpcError(source: ChatErrorSource, title: String, result: RpcResult.Err, restoreDraft: Boolean = false) = ChatErrorState(
+        source = source,
+        title = title,
+        message = result.message,
+        code = result.code,
+        details = result.details,
+        requestId = result.requestId,
+        retryable = result.retryable,
+        restoreDraft = restoreDraft,
+    )
 
     suspend fun loadSessions(engine: EngineState.Ready) {
         val result = chatRpc(
@@ -291,6 +327,9 @@ fun NativeChatScreen(
         if (result is RpcResult.Ok) {
             sessions = parseNativeChatSessions(EngineApi.itemsOf(result.value), labelUntitledSession)
             if (sessionId == null) sessionId = sessions.firstOrNull()?.id
+            if (chatError?.source == ChatErrorSource.Load) chatError = null
+        } else if (result is RpcResult.Err) {
+            chatError = rpcError(ChatErrorSource.Load, labelSessionLoadFailed, result)
         }
     }
 
@@ -303,16 +342,17 @@ fun NativeChatScreen(
         )
         val projection = when (projectionResult) {
             is RpcResult.Err -> {
-                error = labelSessionLoadFailed + ": ${projectionResult.message}"
+                chatError = rpcError(ChatErrorSource.Load, labelSessionLoadFailed, projectionResult)
                 return
             }
             is RpcResult.Ok -> projectionResult.value as? JSONObject
         }
         val cursor = projection?.optLong("asOfSeq", Long.MIN_VALUE) ?: Long.MIN_VALUE
         if (cursor == Long.MIN_VALUE) {
-            error = labelSessionLoadFailed + ": response cursor missing"
+            chatError = ChatErrorState(ChatErrorSource.Load, labelSessionLoadFailed, "response cursor missing", "protocol", "session/projections response did not include asOfSeq.", retryable = true)
             return
         }
+        if (chatError?.source == ChatErrorSource.Load) chatError = null
         // The modelSelection projection rides the same response; `next` is pending ?? lastUsed.
         val selection = projection?.optJSONObject("values")?.optJSONObject("modelSelection")?.optJSONObject("next")
         currentModelName = selection?.optString("model")
@@ -336,15 +376,15 @@ fun NativeChatScreen(
                 val page = pageResult.value as? JSONObject
                 val records = page?.optJSONArray("records")
                 if (records == null) {
-                    error = labelSessionLoadFailed + ": message records missing"
+                    chatError = ChatErrorState(ChatErrorSource.Load, labelSessionLoadFailed, "message records missing", "protocol", "session/page response did not include records.", retryable = true)
                     return
                 }
                 val parsed = parseNativeChatMessages(records, labelImageAttachment, labelFileAttachment, toolCallStore.entries(id))
                 messages = parsed
                 loadedCursor = cursor
-                error = null
+                if (chatError?.source == ChatErrorSource.Load) chatError = null
             }
-            is RpcResult.Err -> error = labelSessionLoadFailed + ": ${pageResult.message}"
+            is RpcResult.Err -> chatError = rpcError(ChatErrorSource.Load, labelSessionLoadFailed, pageResult)
         }
     }
 
@@ -361,11 +401,20 @@ fun NativeChatScreen(
             style = parseNativeChatStyle(raw?.optJSONObject("theme") ?: raw, darkTheme) ?: defaultNativeChatStyle(darkTheme)
         }
         loading = true
-        loadSessions(engine)
+        val sessionResult = chatRpc(engine.baseUrl, "session/list", EngineApi.emptyArgs().put("_request", JSONObject()), engine.token)
+        when (sessionResult) {
+            is RpcResult.Ok -> {
+                sessions = parseNativeChatSessions(EngineApi.itemsOf(sessionResult.value), labelUntitledSession)
+                if (sessionId == null) sessionId = sessions.firstOrNull()?.id
+                if (chatError?.source == ChatErrorSource.Load) chatError = null
+            }
+            is RpcResult.Err -> chatError = rpcError(ChatErrorSource.Load, labelLoadingTitle, sessionResult)
+        }
         loading = false
     }
 
-    LaunchedEffect(ready, sessionId) {
+    var reconnectRequest by remember(sessionId) { mutableLongStateOf(0L) }
+    LaunchedEffect(ready, sessionId, reconnectRequest) {
         val engine = ready ?: return@LaunchedEffect
         val id = sessionId ?: return@LaunchedEffect
         loading = true
@@ -383,10 +432,16 @@ fun NativeChatScreen(
                     refreshMessages(engine, id)
                 }
             }
-            try {
-                EngineApi.followSession(engine.baseUrl, id).collect { frame ->
+            var failures = 0
+            while (true) {
+                try {
+                    EngineApi.followSession(engine.baseUrl, id).collect { frame ->
                     when (frame.optString("type")) {
                         "snapshot" -> {
+                            streamConnected = true
+                            failures = 0
+                            streamReconnectAttempt = 0
+                            if (chatError?.source == ChatErrorSource.Stream) chatError = null
                             val snapshotSessionId = sessionId
                             messages = parseNativeChatMessages(
                                 frame.optJSONArray("records") ?: JSONArray(),
@@ -422,6 +477,7 @@ fun NativeChatScreen(
                                             callData.optString("callId"),
                                             callData.optString("name"),
                                             callData.optString("arguments"),
+                                            callData.optInt("turn").takeIf { callData.has("turn") },
                                         ),
                                     )
                                 }
@@ -470,11 +526,32 @@ fun NativeChatScreen(
                             }
                         }
                     }
+                    }
+                    streamConnected = false
+                    break
+                } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                    throw cancelled
+                } catch (failure: Exception) {
+                    streamConnected = false
+                    failures++
+                    val wait = ChatReconnectPolicy.delayBeforeRetry(failures)
+                    if (wait == null) {
+                        streamReconnectAttempt = 0
+                        val streamFailure = failure as? com.fioiu8.dshpocket.engine.SessionStreamException
+                        chatError = ChatErrorState(
+                            ChatErrorSource.Stream,
+                            labelSessionLoadFailed,
+                            streamFailure?.message ?: failure.message.orEmpty().ifBlank { labelSessionLoadFailed },
+                            streamFailure?.code ?: "transport",
+                            streamFailure?.details ?: EngineApi.safeDiagnostic("${failure.javaClass.simpleName}: ${failure.message.orEmpty()}"),
+                            requestId = streamFailure?.requestId,
+                            retryable = streamFailure?.let { EngineApi.isRetryableCode(it.code) } ?: true,
+                        )
+                        break
+                    }
+                    streamReconnectAttempt = failures
+                    delay(wait)
                 }
-            } catch (cancelled: kotlinx.coroutines.CancellationException) {
-                throw cancelled
-            } catch (failure: Exception) {
-                error = "${labelSessionLoadFailed}: ${failure.message.orEmpty()}"
             }
         }
     }
@@ -486,7 +563,7 @@ fun NativeChatScreen(
         messages = emptyList()
         liveAssistantText = ""
         loading = true
-        error = null
+        chatError = null
         onPendingSessionConsumed()
     }
 
@@ -495,7 +572,7 @@ fun NativeChatScreen(
     LaunchedEffect(promptOutcome) {
         when (val outcome = promptOutcome) {
             is PromptOutcome.Delivered -> {
-                error = null
+                chatError = null
                 val engine = ready
                 if (engine != null) {
                     loadSessions(engine)
@@ -503,11 +580,14 @@ fun NativeChatScreen(
                 }
             }
             is PromptOutcome.Failed -> {
-                error = "${labelSendFailed}: ${outcome.message}"
+                val failed = rpcError(ChatErrorSource.Send, labelSendTitle, RpcResult.Err(outcome.code, outcome.message, outcome.details, outcome.requestId, outcome.retryable), outcome.restoreDraft)
+                    .copy(recoveryText = outcome.text)
+                chatError = failed
                 if (outcome.restoreDraft && draft.isBlank()) updateDraft(outcome.text)
             }
             null -> {}
         }
+        if (promptOutcome is PromptOutcome.Delivered) sessionViewModel.consumeDeliveredPrompt()
         sessionViewModel.consumePromptOutcome()
     }
 
@@ -613,7 +693,8 @@ fun NativeChatScreen(
                 val targetId = ((forked as? RpcResult.Ok)?.value as? JSONObject)
                     ?.optString("sessionId")?.takeIf(String::isNotBlank)
                 if (targetId == null) {
-                    error = "$labelEditFailed: ${(forked as? RpcResult.Err)?.message ?: "no sessionId returned"}"
+                    chatError = (forked as? RpcResult.Err)?.let { rpcError(ChatErrorSource.Edit, labelEditTitle, it) }
+                        ?: ChatErrorState(ChatErrorSource.Edit, labelEditTitle, "no sessionId returned", "protocol", "session fork/create response did not include sessionId.", retryable = true)
                     return@launch
                 }
                 editingMessageId = null
@@ -621,7 +702,7 @@ fun NativeChatScreen(
                 messages = emptyList()
                 liveAssistantText = ""
                 liveThinking = null
-                error = null
+                chatError = null
                 sessionViewModel.sendPrompt(
                     engine = engine,
                     text = newText,
@@ -631,6 +712,17 @@ fun NativeChatScreen(
                 )
                 sessionViewModel.archive(previousId)
                 loadSessions(engine)
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                chatError = ChatErrorState(
+                    ChatErrorSource.Edit,
+                    labelEditTitle,
+                    EngineApi.safeDiagnostic(failure.message.orEmpty().ifBlank { labelEditFailed }),
+                    "transport",
+                    EngineApi.safeDiagnostic("${failure.javaClass.simpleName}: ${failure.message.orEmpty()}"),
+                    retryable = true,
+                )
             } finally {
                 editInFlight = false
             }
@@ -648,13 +740,17 @@ fun NativeChatScreen(
                     .put("atSeq", message.seq)
                     .put("content", newText)
                 when (val result = chatRpc(engine.baseUrl, "session/editMessage", EngineApi.requestArgs(request), engine.token)) {
-                    is RpcResult.Err -> error = "$labelEditFailed: ${result.message}"
+                    is RpcResult.Err -> chatError = rpcError(ChatErrorSource.Edit, labelEditTitle, result)
                     is RpcResult.Ok -> {
                         editingMessageId = null
-                        error = null
+                        chatError = null
                         refreshMessages(engine, currentId)
                     }
                 }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                chatError = ChatErrorState(ChatErrorSource.Edit, labelEditTitle, EngineApi.safeDiagnostic(failure.message.orEmpty().ifBlank { labelEditFailed }), "transport", EngineApi.safeDiagnostic("${failure.javaClass.simpleName}: ${failure.message.orEmpty()}"), retryable = true)
             } finally {
                 editInFlight = false
             }
@@ -666,7 +762,15 @@ fun NativeChatScreen(
             DshTopAppBar(
                 title = sessions.firstOrNull { it.id == sessionId }?.title ?: stringResource(com.fioiu8.dshpocket.R.string.native_new_chat),
                 onMenu = onMenu,
-                subtitle = stringResource(com.fioiu8.dshpocket.R.string.native_subtitle),
+                subtitle = when {
+                    running -> stringResource(com.fioiu8.dshpocket.R.string.native_status_running)
+                    promptInFlight -> stringResource(com.fioiu8.dshpocket.R.string.native_status_sending)
+                    streamReconnectAttempt > 0 -> stringResource(com.fioiu8.dshpocket.R.string.native_stream_retrying_attempt, streamReconnectAttempt)
+                    loading && sessionId != null -> stringResource(com.fioiu8.dshpocket.R.string.native_stream_connecting)
+                    streamConnected -> labelStreamConnected
+                    sessionId != null -> labelStreamDisconnected
+                    else -> stringResource(com.fioiu8.dshpocket.R.string.native_status_ready)
+                },
                 actions = {
                     IconButton(onClick = { showSessions = true }, modifier = Modifier.size(DshSpacing.touchTarget)) {
                         Icon(Icons.AutoMirrored.Filled.Chat, contentDescription = stringResource(com.fioiu8.dshpocket.R.string.native_select_session), modifier = Modifier.size(DshSpacing.icon))
@@ -680,7 +784,7 @@ fun NativeChatScreen(
                                 onChatDraftChange(DRAFT_NEW_SLOT, draft)
                                 onChatDraftChange(currentSlot, "")
                             }
-                            sessionId = null; messages = emptyList(); liveAssistantText = ""; error = null
+                            sessionId = null; messages = emptyList(); liveAssistantText = ""; chatError = null
                         },
                         modifier = Modifier.size(DshSpacing.touchTarget),
                     ) {
@@ -707,32 +811,44 @@ fun NativeChatScreen(
                     busy = state !is EngineState.Failed,
                 )
                 else -> {
-                    if (error != null && visibleMessages.isEmpty()) {
-                        Box(Modifier.weight(1f).fillMaxWidth()) {
-                            CenteredMessage(stringResource(com.fioiu8.dshpocket.R.string.native_session_load_failed), error.orEmpty(), busy = false)
+                    chatError?.let { failure ->
+                        val retryAction: (() -> Unit)? = when (failure.source) {
+                            ChatErrorSource.Load -> ({
+                                scope.launch {
+                                    loadSessions(ready)
+                                    sessionId?.let { refreshMessages(ready, it) }
+                                }
+                            })
+                            ChatErrorSource.Stream -> ({ reconnectRequest++ })
+                            ChatErrorSource.Send -> ({
+                                if (draft == failure.recoveryText) updateDraft("")
+                                sessionViewModel.retryPrompt(ready)
+                            })
+                            else -> null
                         }
-                    } else if (loading && visibleMessages.isEmpty()) {
-                        Box(Modifier.weight(1f).fillMaxWidth()) {
+                        val actionLabel = when (failure.source) {
+                            ChatErrorSource.Load -> labelRetry
+                            ChatErrorSource.Stream -> labelReconnect
+                            ChatErrorSource.Send -> labelRetry
+                            else -> null
+                        }
+                        NativeChatErrorBanner(
+                            error = failure,
+                            actionLabel = actionLabel,
+                            onAction = retryAction,
+                            copyLabel = labelCopyError,
+                            copiedLabel = labelErrorCopied,
+                            detailsLabel = labelErrorDetails,
+                        )
+                    }
+                    when {
+                        loading && visibleMessages.isEmpty() -> Box(Modifier.weight(1f).fillMaxWidth()) {
                             CenteredMessage(stringResource(com.fioiu8.dshpocket.R.string.native_sessions_loading), "", busy = true)
                         }
-                    } else if (sessionId == null) {
-                        Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                        sessionId == null -> Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                             Text(stringResource(com.fioiu8.dshpocket.R.string.native_start_message), color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-                    } else {
-                        if (error != null) {
-                            Surface(
-                                color = MaterialTheme.colorScheme.errorContainer,
-                                modifier = Modifier.fillMaxWidth().padding(horizontal = DshSpacing.page, vertical = 4.dp),
-                                shape = MaterialTheme.shapes.medium,
-                            ) {
-                                Text(
-                                    error.orEmpty(),
-                                    color = MaterialTheme.colorScheme.onErrorContainer,
-                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                                )
-                            }
-                        }
+                        else -> {
                         LazyColumn(
                             state = listState,
                             modifier = Modifier.weight(1f).fillMaxWidth(),
@@ -746,6 +862,27 @@ fun NativeChatScreen(
                                 when {
                                     message.role == "tool_call" -> ToolCallCard(message)
                                     message.role == "thinking" -> ThinkingCard(message, live = message.id == "live-thinking")
+                                    message.role == "error" -> NativeErrorTimelineNode(
+                                        message = message,
+                                        turnFailedLabel = labelTurnFailed,
+                                        blockedLabel = labelTurnBlocked,
+                                        maxTokensLabel = labelTurnMaxTokens,
+                                        interruptedLabel = labelTurnInterrupted,
+                                        copyLabel = labelCopyError,
+                                        detailsLabel = labelErrorDetails,
+                                        regenerateLabel = labelRegenerate,
+                                        onRegenerate = {
+                                            val failedUserMessage = messages.lastOrNull { it.role == "user" && it.turn == message.turn }
+                                            if (message.retryable && failedUserMessage != null && !promptInFlight && !running) {
+                                                sessionViewModel.sendPrompt(
+                                                    engine = ready,
+                                                    text = failedUserMessage.text,
+                                                    sessionId = sessionId,
+                                                    workspacePath = EnginePaths.workspace(context).absolutePath,
+                                                )
+                                            }
+                                        },
+                                    )
                                     editingMessageId == message.id -> MessageEditField(
                                         initial = message.text,
                                         confirmLabel = if (message.role == "user") labelEditResend else labelEditSave,
@@ -759,6 +896,7 @@ fun NativeChatScreen(
                                         message = message,
                                         style = style,
                                         preferences = preferences,
+                                        agentLabel = labelAgent,
                                         onAssist = if (preferences.showAssistReply && message.role == "assistant") {
                                         {
                                             // Same ViewModel path as the composer so the
@@ -766,7 +904,7 @@ fun NativeChatScreen(
                                             // it follows the app language instead of being
                                             // hardcoded Chinese.
                                             if (!promptInFlight && ready != null) {
-                                                error = null
+                                                chatError = null
                                                 sessionViewModel.sendPrompt(
                                                     engine = ready,
                                                     text = labelAssistPrompt,
@@ -794,6 +932,7 @@ fun NativeChatScreen(
                                 }
                             }
                         }
+                        }
                     }
 
                     ChatComposer(
@@ -804,6 +943,7 @@ fun NativeChatScreen(
                         // An in-flight edit (fork + re-prompt) blocks composer input too.
                         sending = promptInFlight || editInFlight,
                         running = running,
+                        statusText = if (chatError?.source == ChatErrorSource.Send && chatError?.restoreDraft == true) labelDraftRestored else null,
                         // ready is smart-cast non-null inside this branch.
                         enabled = true,
                         onPickModel = { showModelPicker = true; pickerModel = null },
@@ -818,7 +958,7 @@ fun NativeChatScreen(
                                         EngineApi.requestArgs(JSONObject().put("sessionId", id)),
                                         engine.token,
                                     )
-                                    if (result is RpcResult.Err) error = "${labelStopFailed}: ${result.message}"
+                                    if (result is RpcResult.Err) chatError = rpcError(ChatErrorSource.Stop, labelStopTitle, result)
                                     loadSessions(engine)
                                     refreshMessages(engine, id)
                                 }
@@ -829,13 +969,20 @@ fun NativeChatScreen(
                             val engine = ready
                             if (text.isNotEmpty() && !promptInFlight && engine != null) {
                                 updateDraft("")
-                                error = null
-                                sessionViewModel.sendPrompt(
-                                    engine = engine,
-                                    text = text,
-                                    sessionId = sessionId,
-                                    workspacePath = EnginePaths.workspace(context).absolutePath,
-                                )
+                                val failedPrompt = chatError?.takeIf {
+                                    it.source == ChatErrorSource.Send && it.recoveryText == text
+                                }
+                                chatError = null
+                                if (failedPrompt != null) {
+                                    sessionViewModel.retryPrompt(engine)
+                                } else {
+                                    sessionViewModel.sendPrompt(
+                                        engine = engine,
+                                        text = text,
+                                        sessionId = sessionId,
+                                        workspacePath = EnginePaths.workspace(context).absolutePath,
+                                    )
+                                }
                             }
                         },
                     )
@@ -858,7 +1005,7 @@ fun NativeChatScreen(
                                 messages = emptyList()
                                 liveAssistantText = ""
                                 loading = true
-                                error = null
+                                chatError = null
                             },
                             modifier = Modifier.fillMaxWidth(),
                         ) {
@@ -912,7 +1059,8 @@ fun NativeChatScreen(
                                             targetId = ((created as? RpcResult.Ok)?.value as? JSONObject)?.optString("sessionId")
                                                 ?.takeIf(String::isNotBlank)
                                             if (targetId == null) {
-                                                error = (created as? RpcResult.Err)?.message ?: labelCreateSessionFailed
+                                                chatError = (created as? RpcResult.Err)?.let { rpcError(ChatErrorSource.Model, labelModelTitle, it) }
+                                                    ?: ChatErrorState(ChatErrorSource.Model, labelCreateSessionFailed, "session/create returned no sessionId", "protocol", "session/create response did not include sessionId.", retryable = true)
                                                 return@launch
                                             }
                                             sessionId = targetId
@@ -923,9 +1071,9 @@ fun NativeChatScreen(
                                             .put("model", option.modelId)
                                             .apply { if (effortId != "default") put("reasoningEffort", effortId) }
                                         when (val result = chatRpc(engine.baseUrl, "session/selectModel", EngineApi.requestArgs(request), engine.token)) {
-                                            is RpcResult.Err -> error = "${labelSwitchModelFailed}: ${result.message}"
+                                            is RpcResult.Err -> chatError = rpcError(ChatErrorSource.Model, labelModelTitle, result)
                                             is RpcResult.Ok -> {
-                                                error = null
+                                                chatError = null
                                                 currentModelName = option.name
                                                 showModelPicker = false
                                                 pickerModel = null
@@ -949,6 +1097,7 @@ private fun NativeMessageBubble(
     message: NativeChatMessage,
     style: NativeChatStyle,
     preferences: NativeChatPreferences,
+    agentLabel: String,
     onAssist: (() -> Unit)?,
     onEdit: (() -> Unit)? = null,
 ) {
@@ -997,6 +1146,14 @@ private fun NativeMessageBubble(
                     }
                 }
             } else {
+                Row(
+                    modifier = Modifier.padding(bottom = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Icon(Icons.Filled.AutoAwesome, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
+                    Text(agentLabel, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                }
                 SelectionContainer {
                     MarkdownText(
                         markdown = message.text,
@@ -1084,6 +1241,155 @@ private fun formatMessageTime(rawTime: Long, locale: Locale): String {
 }
 
 @Composable
+private fun NativeChatErrorBanner(
+    error: ChatErrorState,
+    actionLabel: String?,
+    onAction: (() -> Unit)?,
+    copyLabel: String,
+    copiedLabel: String,
+    detailsLabel: String,
+) {
+    var expanded by remember(error) { mutableStateOf(false) }
+    var copied by remember(error) { mutableStateOf(false) }
+    val clipboard = LocalClipboard.current
+    val scope = rememberCoroutineScope()
+    val copyText = buildString {
+        append(error.title).append('\n').append(error.message)
+        append("\ncode: ").append(error.code)
+        error.requestId?.let { append("\nrequestId: ").append(it) }
+        error.details.takeIf(String::isNotBlank)?.let { append("\n\n").append(it) }
+    }
+    Surface(
+        color = MaterialTheme.colorScheme.errorContainer,
+        shape = MaterialTheme.shapes.medium,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = DshSpacing.page, vertical = 6.dp),
+    ) {
+        Column(Modifier.padding(start = 12.dp, end = 8.dp, top = 8.dp, bottom = 6.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Icon(Icons.Filled.ErrorOutline, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+                Column(Modifier.weight(1f)) {
+                    Text(error.title, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onErrorContainer)
+                    Text(error.message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onErrorContainer)
+                    Text(error.code, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onErrorContainer)
+                }
+                IconButton(
+                    onClick = {
+                        scope.launch {
+                            clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("error", copyText)))
+                            copied = true
+                        }
+                    },
+                    modifier = Modifier.size(36.dp),
+                ) {
+                    Icon(Icons.Filled.ContentCopy, contentDescription = copyLabel, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onErrorContainer)
+                }
+                IconButton(onClick = { expanded = !expanded }, modifier = Modifier.size(36.dp)) {
+                    Icon(
+                        Icons.Filled.ExpandMore,
+                        contentDescription = detailsLabel,
+                        modifier = Modifier.size(20.dp).graphicsLayer { rotationZ = if (expanded) 180f else 0f },
+                        tint = MaterialTheme.colorScheme.onErrorContainer,
+                    )
+                }
+            }
+            if (copied) Text(copiedLabel, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onErrorContainer)
+            if (onAction != null && actionLabel != null) {
+                TextButton(onClick = onAction, modifier = Modifier.align(Alignment.End)) { Text(actionLabel) }
+            }
+            AnimatedVisibility(visible = expanded) {
+                Text(
+                    text = buildString {
+                        error.requestId?.let { append("requestId: ").append(it).append('\n') }
+                        append(error.details.ifBlank { error.message })
+                    },
+                    style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                    color = MaterialTheme.colorScheme.onErrorContainer,
+                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 8.dp).heightIn(max = 180.dp).verticalScroll(rememberScrollState()),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun NativeErrorTimelineNode(
+    message: NativeChatMessage,
+    turnFailedLabel: String,
+    blockedLabel: String,
+    maxTokensLabel: String,
+    interruptedLabel: String,
+    copyLabel: String,
+    detailsLabel: String,
+    regenerateLabel: String,
+    onRegenerate: (() -> Unit)?,
+) {
+    var expanded by rememberSaveable(message.id) { mutableStateOf(false) }
+    var copied by remember(message.id) { mutableStateOf(false) }
+    val clipboard = LocalClipboard.current
+    val scope = rememberCoroutineScope()
+    val copyText = buildString {
+        append(message.errorCode.orEmpty()).append('\n').append(message.text)
+        message.requestId?.let { append("\nrequestId: ").append(it) }
+        message.errorDetails?.let { append("\n\n").append(it) }
+    }
+    val reasonTitle = when (message.errorCode) {
+        "turn/blocked" -> blockedLabel
+        "turn/max-tokens" -> maxTokensLabel
+        "turn/interrupted" -> interruptedLabel
+        else -> turnFailedLabel
+    }
+    Surface(
+        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.72f),
+        shape = MaterialTheme.shapes.medium,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Icon(Icons.Filled.ErrorOutline, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+                Column(Modifier.weight(1f)) {
+                    Text(reasonTitle, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.error)
+                    Text(message.text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onErrorContainer)
+                    message.errorCode?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onErrorContainer) }
+                }
+                IconButton(
+                    onClick = {
+                        scope.launch {
+                            clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("turn-error", copyText)))
+                            copied = true
+                        }
+                    },
+                    modifier = Modifier.size(36.dp),
+                ) {
+                    Icon(Icons.Filled.ContentCopy, contentDescription = copyLabel, modifier = Modifier.size(18.dp))
+                }
+                IconButton(onClick = { expanded = !expanded }, modifier = Modifier.size(36.dp)) {
+                    Icon(Icons.Filled.ExpandMore, contentDescription = detailsLabel, modifier = Modifier.size(20.dp).graphicsLayer { rotationZ = if (expanded) 180f else 0f })
+                }
+            }
+            if (copied) Text(stringResource(com.fioiu8.dshpocket.R.string.native_error_copied), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onErrorContainer)
+            if (message.retryable && onRegenerate != null) {
+                TextButton(onClick = onRegenerate, modifier = Modifier.align(Alignment.End)) {
+                    Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.size(4.dp))
+                    Text(regenerateLabel)
+                }
+            }
+            AnimatedVisibility(visible = expanded) {
+                Text(
+                    text = buildString {
+                        append(message.errorDetails.orEmpty())
+                        message.requestId?.let { append("\nrequestId: ").append(it) }
+                    },
+                    style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                    color = MaterialTheme.colorScheme.onErrorContainer,
+                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp).heightIn(max = 180.dp).verticalScroll(rememberScrollState()),
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun ChatComposer(
     value: String,
     suggestions: List<String>,
@@ -1091,12 +1397,21 @@ private fun ChatComposer(
     onValueChange: (String) -> Unit,
     sending: Boolean,
     running: Boolean,
+    statusText: String?,
     enabled: Boolean,
     onCancel: () -> Unit,
     onPickModel: () -> Unit,
     onSend: () -> Unit,
 ) {
     Column {
+        statusText?.let {
+            Text(
+                text = it,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 4.dp),
+            )
+        }
         if (suggestions.isNotEmpty()) {
             Row(
                 modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp),
@@ -1418,10 +1733,30 @@ internal fun parseNativeChatMessages(
     toolCallOverlay: List<com.fioiu8.dshpocket.ui.state.NativeChatToolCallStore.Entry> = emptyList(),
 ): List<NativeChatMessage> {
     val messages = ArrayList<NativeChatMessage>()
+    val turnsWithUsers = buildSet {
+        for (index in 0 until records.length()) {
+            val event = records.optJSONObject(index)?.optJSONObject("event") ?: continue
+            if (event.optString("type") == "user/message") {
+                val data = event.optJSONObject("data") ?: continue
+                if (data.has("turn")) add(data.optInt("turn"))
+            }
+        }
+    }
+    val turnsWithTools = buildSet {
+        for (index in 0 until records.length()) {
+            val event = records.optJSONObject(index)?.optJSONObject("event") ?: continue
+            if (event.optString("type") == "tool/call") {
+                event.optJSONObject("data")?.optInt("turn")?.let(::add)
+            }
+        }
+        toolCallOverlay.mapNotNullTo(this) { it.turn }
+    }
+    val hasUnattributedToolCalls = toolCallOverlay.any { it.turn == null }
     // callId -> index of the tool_call row still waiting for its result.
     val pendingCalls = HashMap<String, Int>()
+    data class ToolFailure(val details: String?, val code: String?, val requestId: String?)
     // Results whose tool/call is not in the surface page (it lives in the overlay).
-    val orphanResults = LinkedHashMap<String, Pair<String, Boolean>>()
+    val orphanResults = LinkedHashMap<String, Triple<String, Boolean, ToolFailure?>>()
     // True once this step's thinking already came from an `assistant/attempt` event, so
     // the assistant message's own stream must not produce a second, identical card.
     var attemptThinkingThisStep = false
@@ -1433,6 +1768,50 @@ internal fun parseNativeChatMessages(
         val type = event.optString("type")
         val data = event.optJSONObject("data") ?: continue
         val seq = event.optLong("seq")
+        if (type == "turn/end") {
+            val reason = data.optJSONObject("reason") ?: continue
+            val kind = reason.optString("kind")
+            if (kind in setOf("error", "blocked", "max-tokens", "interrupted")) {
+                val failure = reason.optJSONObject("error")
+                val code = when (kind) {
+                    "error" -> failure?.optString("code")?.takeIf(String::isNotBlank) ?: "turn/error"
+                    else -> "turn/$kind"
+                }
+                val message = failure?.optString("message")?.takeIf(String::isNotBlank)
+                    ?: reason.optString("message").takeIf(String::isNotBlank)
+                    ?: kind
+                val safeMessage = EngineApi.safeDiagnostic(message)
+                val turn = data.optInt("turn").takeIf { data.has("turn") }
+                val turnNumber = turn ?: 0
+                val hasTools = turn != null && turn in turnsWithTools
+                val requestId = failure?.optString("requestId")?.takeIf { it.isNotBlank() && it != "null" }
+                    ?: data.optString("requestId").takeIf { it.isNotBlank() && it != "null" }
+                val detail = buildString {
+                    append("turn: ").append(turnNumber)
+                    append("\nreason: ").append(kind)
+                    failure?.optString("code")?.takeIf(String::isNotBlank)?.let { append("\ncode: ").append(it) }
+                    append("\nmessage: ").append(safeMessage)
+                    failure?.optInt("status")?.takeIf { failure.has("status") }?.let { append("\nstatus: ").append(it) }
+                    requestId?.let { append("\nrequestId: ").append(it) }
+                    append("\ntoolCalls: ").append(if (hasTools) "present" else "none")
+                }
+                messages.add(
+                    NativeChatMessage(
+                        id = "turn-error-$seq",
+                        role = "error",
+                        text = safeMessage,
+                        time = event.optLong("time"),
+                        seq = seq,
+                        errorDetails = com.fioiu8.dshpocket.engine.EngineApi.safeDiagnostic(detail),
+                        errorCode = code,
+                        requestId = requestId,
+                        retryable = kind == "error" && turn != null && turn in turnsWithUsers && !hasUnattributedToolCalls && canRegenerateTurn(hasTools),
+                        turn = turn,
+                    ),
+                )
+            }
+            continue
+        }
         if (type == "tool/call") {
             val name = data.optString("name")
             // The suggestions row is a rendered tool result already; its call would be noise.
@@ -1449,6 +1828,7 @@ internal fun parseNativeChatMessages(
                     toolName = name,
                     callId = data.optString("callId"),
                     argumentsText = data.optString("arguments"),
+                    turn = data.optInt("turn").takeIf { data.has("turn") },
                 ),
             )
             continue
@@ -1480,16 +1860,31 @@ internal fun parseNativeChatMessages(
             val message = data.optJSONObject("message")
             val callId = message?.optString("toolCallId").orEmpty()
             val result = toolResultText(data, imagePlaceholder, filePlaceholder)
-            val isError = message?.optBoolean("isError", false) == true || data.has("error")
+            val structuredError = data.optJSONObject("error")
+            val rawError = data.opt("error")?.takeUnless { it == JSONObject.NULL }
+            val isError = message?.optBoolean("isError", false) == true || rawError != null
+            val errorDetails = structuredError?.let { error ->
+                buildList {
+                    error.optString("code").takeIf(String::isNotBlank)?.let { add("code: $it") }
+                    error.optString("message").takeIf(String::isNotBlank)?.let { add("message: $it") }
+                    error.optString("reason").takeIf(String::isNotBlank)?.let { add("reason: $it") }
+                    error.optString("requestId").takeIf(String::isNotBlank)?.let { add("requestId: $it") }
+                }.joinToString("\n").ifBlank { null }
+            } ?: rawError?.toString()?.takeIf { isError }
+            val errorCode = structuredError?.optString("code")?.takeIf(String::isNotBlank)
+            val requestId = structuredError?.optString("requestId")?.takeIf(String::isNotBlank)
+            val safeErrorDetails = errorDetails?.let(EngineApi::safeDiagnostic)
+            val safeResult = if (isError) EngineApi.safeDiagnostic(result) else result
+            val toolFailure = if (isError) ToolFailure(safeErrorDetails, errorCode, requestId) else null
             val target = pendingCalls.remove(callId)
             if (target != null && target < messages.size) {
                 val call = messages[target]
                 if (call.callId == callId) {
-                    messages[target] = call.copy(resultText = result, isError = isError)
+                    messages[target] = call.copy(resultText = safeResult, isError = isError, errorDetails = safeErrorDetails, errorCode = errorCode, requestId = requestId)
                     continue
                 }
             }
-            if (callId.isNotBlank()) orphanResults[callId] = result to isError
+            if (callId.isNotBlank()) orphanResults[callId] = Triple(safeResult, isError, toolFailure)
             continue
         }
         if (type == "assistant/attempt") {
@@ -1582,10 +1977,11 @@ internal fun parseNativeChatMessages(
                 durationMs,
                 seq = seq,
                 edited = editedMessage,
+                turn = data.optInt("turn").takeIf { data.has("turn") },
             ),
         )
     }
-    if (toolCallOverlay.isEmpty()) return messages
+    if (toolCallOverlay.isEmpty()) return messages.sortedBy { it.seq }
     // The overlay carries the tool/call events `session/page` never serves. But the
     // follow snapshot's records DO include raw events on some paths — skip any call the
     // parsed history already produced, or the row would appear twice under one key.
@@ -1593,7 +1989,7 @@ internal fun parseNativeChatMessages(
     val overlayRows = toolCallOverlay
         .filter { it.callId !in existingCallIds }
         .map { entry ->
-            val (result, isError) = orphanResults[entry.callId] ?: (null to false)
+            val orphan = orphanResults[entry.callId]
             NativeChatMessage(
                 id = "tool-call-${entry.seq}",
                 role = "tool_call",
@@ -1603,8 +1999,12 @@ internal fun parseNativeChatMessages(
                 toolName = entry.name,
                 callId = entry.callId,
                 argumentsText = entry.arguments,
-                resultText = result,
-                isError = isError,
+                resultText = orphan?.first,
+                isError = orphan?.second == true,
+                errorDetails = orphan?.third?.details,
+                errorCode = orphan?.third?.code,
+                requestId = orphan?.third?.requestId,
+                turn = entry.turn,
             )
         }
     if (overlayRows.isEmpty()) return messages
@@ -1640,15 +2040,36 @@ internal fun applySessionEvent(
         val callId = message?.optString("toolCallId").orEmpty()
         if (callId.isBlank()) return existing
         val result = toolResultText(data, imagePlaceholder, filePlaceholder)
-        val isError = message?.optBoolean("isError", false) == true || data.has("error")
+        val structuredError = data.optJSONObject("error")
+        val rawError = data.opt("error")?.takeUnless { it == JSONObject.NULL }
+        val isError = message?.optBoolean("isError", false) == true || rawError != null
+        val errorDetails = structuredError?.let { error ->
+            buildList {
+                error.optString("code").takeIf(String::isNotBlank)?.let { add("code: $it") }
+                error.optString("message").takeIf(String::isNotBlank)?.let { add("message: $it") }
+                error.optString("reason").takeIf(String::isNotBlank)?.let { add("reason: $it") }
+                error.optString("requestId").takeIf(String::isNotBlank)?.let { add("requestId: $it") }
+            }.joinToString("\n").ifBlank { null }
+        } ?: rawError?.toString()?.takeIf { isError }
+        val errorCode = structuredError?.optString("code")?.takeIf(String::isNotBlank)
+        val requestId = structuredError?.optString("requestId")?.takeIf(String::isNotBlank)
         val index = existing.indexOfLast { it.role == "tool_call" && it.callId == callId && it.resultText == null }
         if (index < 0) return existing
-        return existing.mapIndexed { i, item -> if (i == index) item.copy(resultText = result, isError = isError) else item }
+        val safeResult = if (isError) EngineApi.safeDiagnostic(result) else result
+        val safeErrorDetails = errorDetails?.let(EngineApi::safeDiagnostic)
+        return existing.mapIndexed { i, item -> if (i == index) item.copy(resultText = safeResult, isError = isError, errorDetails = safeErrorDetails, errorCode = errorCode, requestId = requestId) else item }
     }
     val records = JSONArray().put(JSONObject().put("event", event))
-    val incoming = parseNativeChatMessages(records, imagePlaceholder, filePlaceholder)
+    var incoming = parseNativeChatMessages(records, imagePlaceholder, filePlaceholder)
+    if (type == "turn/end") {
+        val turn = data.optInt("turn").takeIf { data.has("turn") }
+        val hadTools = turn != null && existing.any { it.role == "tool_call" && it.turn == turn }
+        incoming = incoming.map { message ->
+            if (message.role == "error") message.copy(retryable = message.retryable && canRegenerateTurn(hadTools)) else message
+        }
+    }
     if (incoming.isEmpty()) return base
-    return (base + incoming).distinctBy { it.id }
+    return (base + incoming).distinctBy { it.id }.sortedBy { it.seq }
 }
 
 internal fun latestNativeSuggestions(messages: List<NativeChatMessage>): List<String> {
@@ -1843,9 +2264,9 @@ private fun ToolCallCard(message: NativeChatMessage) {
                     .clickable { expanded = !expanded },
             ) {
                 Icon(
-                    toolCallIcon(message.toolName),
+                    if (message.isError) Icons.Filled.ErrorOutline else toolCallIcon(message.toolName),
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
+                    tint = if (message.isError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(15.dp),
                 )
                 Text(
@@ -1859,6 +2280,13 @@ private fun ToolCallCard(message: NativeChatMessage) {
                 if (message.isRunningToolCall) {
                     CircularProgressIndicator(Modifier.size(13.dp), strokeWidth = 1.5.dp)
                 } else {
+                    if (message.isError) {
+                        Text(
+                            stringResource(com.fioiu8.dshpocket.R.string.native_tool_failed),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
                     Icon(
                         Icons.Filled.ExpandMore,
                         contentDescription = null,
@@ -1871,6 +2299,14 @@ private fun ToolCallCard(message: NativeChatMessage) {
             }
             AnimatedVisibility(visible = expanded) {
                 Column(Modifier.padding(bottom = 8.dp)) {
+                    message.errorDetails?.takeIf { it.isNotBlank() }?.let { details ->
+                        Text(
+                            text = details,
+                            style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.fillMaxWidth().heightIn(max = 180.dp).verticalScroll(rememberScrollState()),
+                        )
+                    }
                     message.argumentsText?.takeIf { it.isNotBlank() }?.let { args ->
                         Text(
                             text = prettyToolArguments(args),
