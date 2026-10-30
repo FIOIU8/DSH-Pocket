@@ -86,6 +86,10 @@ keytool -genkeypair -v -keystore .keystore/debug.keystore -storepass android -al
 
 The debug APK is written to `app/build/outputs/apk/debug/app-debug.apk`. Release APKs are built by the GitHub Actions draft-release workflow and require repository secrets for a persistent signing key. See [`.github/WORKFLOWS.md`](.github/WORKFLOWS.md).
 
+### Developer testing
+
+For model-provider integration testing, use the [mock-model-provider](https://github.com/FIOIU8/mock-model-provider) tool. It provides an OpenAI-compatible local API and browser console for testing normal and streaming responses, tool calls, manual replies, delays, and simulated errors without calling a real model.
+
 ## License
 
 Project-owned source code and assets are licensed under the MIT License; see [`LICENSE`](LICENSE). Third-party components bundled in the APK keep their own licenses and notices. In particular, the runtime includes MPL-2.0 components, and its WebAssembly image decoder (`@img/sharp-wasm32`) includes LGPL-3.0-or-later components. The runtime archive retains upstream license files where the package provides them; see [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md) for the current inventory and known packaging warnings. The MIT license does not replace or relicense third-party components. The DSH name and other third-party marks are not granted by this project license.

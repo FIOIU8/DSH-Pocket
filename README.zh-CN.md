@@ -86,6 +86,10 @@ keytool -genkeypair -v -keystore .keystore/debug.keystore -storepass android -al
 
 Debug APK 输出到 `app/build/outputs/apk/debug/app-debug.apk`。正式 Release APK 由 GitHub Actions 草稿发布工作流构建，需要配置长期使用的签名密钥 Secrets，详见 [`.github/WORKFLOWS.md`](.github/WORKFLOWS.md)。
 
+### 开发者测试
+
+进行模型服务商联调时，可使用 [mock-model-provider](https://github.com/FIOIU8/mock-model-provider)。它提供兼容 OpenAI 协议的本地 API 和网页控制台，可在不调用真实模型的情况下测试普通及流式回复、工具调用、手动回复、延迟和错误模拟。
+
 ## 许可证
 
 本项目自有源代码和资源采用 MIT 许可证，详见 [`LICENSE`](LICENSE)。APK 中打包的第三方组件仍适用各自许可证和声明；运行时包含 MPL-2.0 组件，其 WebAssembly 图像解码器（`@img/sharp-wasm32`）包含 LGPL-3.0-or-later 组件。运行时归档会保留上游包提供的许可证文件；当前清单及已发现的打包问题见 [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md)。项目 MIT 许可证不会替代或重新授权第三方组件。DSH 名称及其他第三方商标也不由本项目许可证授予。
