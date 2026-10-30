@@ -1,6 +1,6 @@
 package com.fioiu8.dshpocket
 
-import com.fioiu8.dshpocket.ui.AppLanguage
+import com.fioiu8.dshpocket.core.AppLanguage
 import java.util.Locale
 import org.junit.Assert.assertEquals
 import org.junit.Test

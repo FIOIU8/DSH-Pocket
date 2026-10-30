@@ -1,4 +1,4 @@
-package com.fioiu8.dshpocket.ui.state
+package com.fioiu8.dshpocket.data.session
 
 /**
  * A session as the engine reports it.

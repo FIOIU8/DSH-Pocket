@@ -1,6 +1,6 @@
 package com.fioiu8.dshpocket
 
-import com.fioiu8.dshpocket.ui.state.archivedIdsFromValues
+import com.fioiu8.dshpocket.data.session.archivedIdsFromValues
 import com.fioiu8.dshpocket.ui.NativeChatMessage
 import com.fioiu8.dshpocket.ui.latestNativeSuggestions
 import com.fioiu8.dshpocket.ui.isNativeSystemPrompt

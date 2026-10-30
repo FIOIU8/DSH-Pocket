@@ -13,7 +13,7 @@ import android.util.Log
 import android.view.Gravity
 import android.view.WindowManager
 import com.fioiu8.dshpocket.screen.ScreenControlManager
-import com.fioiu8.dshpocket.ui.AppLanguagePreferences
+import com.fioiu8.dshpocket.core.AppLanguagePreferences
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob

@@ -25,7 +25,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.res.stringResource
 import com.fioiu8.dshpocket.R
-import com.fioiu8.dshpocket.ui.AppLanguagePreferences
+import com.fioiu8.dshpocket.core.AppLanguagePreferences
 import com.fioiu8.dshpocket.ui.theme.DSHPocketTheme
 
 /**

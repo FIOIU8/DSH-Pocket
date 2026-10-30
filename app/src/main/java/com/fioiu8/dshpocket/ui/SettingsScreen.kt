@@ -72,6 +72,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.res.stringResource
 import com.fioiu8.dshpocket.backup.BackupManager
 import com.fioiu8.dshpocket.capability.CapabilitySnapshot
+import com.fioiu8.dshpocket.core.AppLanguage
 import com.fioiu8.dshpocket.capability.CapabilityState
 import com.fioiu8.dshpocket.capability.CompanionStatus
 import com.fioiu8.dshpocket.capability.ProcessExecutionCapability

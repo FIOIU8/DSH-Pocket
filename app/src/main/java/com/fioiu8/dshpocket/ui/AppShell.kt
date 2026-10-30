@@ -1,5 +1,7 @@
 package com.fioiu8.dshpocket.ui
 
+import com.fioiu8.dshpocket.core.AppLanguage
+
 import android.annotation.SuppressLint
 import android.net.Uri
 import android.util.Log
@@ -71,11 +73,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import com.fioiu8.dshpocket.ui.state.EngineModelSource
 import com.fioiu8.dshpocket.ui.state.EnginePluginSource
-import com.fioiu8.dshpocket.ui.state.EngineSessionSource
+import com.fioiu8.dshpocket.data.session.EngineSessionSource
 import com.fioiu8.dshpocket.ui.state.ModelRepository
 import com.fioiu8.dshpocket.ui.state.PluginRepository
-import com.fioiu8.dshpocket.ui.state.SessionRepository
-import com.fioiu8.dshpocket.ui.state.SharedPreferencesArchiveStore
+import com.fioiu8.dshpocket.data.session.SessionRepository
+import com.fioiu8.dshpocket.data.session.SharedPreferencesArchiveStore
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf

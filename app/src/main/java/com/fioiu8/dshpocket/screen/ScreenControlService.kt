@@ -18,7 +18,7 @@ import android.view.WindowManager
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.fioiu8.dshpocket.R
-import com.fioiu8.dshpocket.ui.AppLanguagePreferences
+import com.fioiu8.dshpocket.core.AppLanguagePreferences
 
 /**
  * Hosts the marquee overlay and the "stop the AI" notification while operations run

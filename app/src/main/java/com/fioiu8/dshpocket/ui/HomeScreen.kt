@@ -45,8 +45,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.pluralStringResource
 import com.fioiu8.dshpocket.engine.EngineApi
-import com.fioiu8.dshpocket.ui.state.SessionLoadState
-import com.fioiu8.dshpocket.ui.state.SessionRepository
+import com.fioiu8.dshpocket.data.session.SessionLoadState
+import com.fioiu8.dshpocket.data.session.SessionRepository
 import com.fioiu8.dshpocket.engine.EnginePaths
 import com.fioiu8.dshpocket.engine.EngineState
 import com.fioiu8.dshpocket.engine.RuntimeInstaller

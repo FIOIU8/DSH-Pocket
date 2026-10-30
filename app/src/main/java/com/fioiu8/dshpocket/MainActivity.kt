@@ -11,8 +11,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.fioiu8.dshpocket.engine.EngineController
 import com.fioiu8.dshpocket.engine.EngineService
+import com.fioiu8.dshpocket.core.AppLanguagePreferences
 import com.fioiu8.dshpocket.ui.AppShell
-import com.fioiu8.dshpocket.ui.AppLanguagePreferences
 import com.fioiu8.dshpocket.ui.onboarding.OnboardingFlow
 import com.fioiu8.dshpocket.ui.onboarding.OnboardingPreferences
 import com.fioiu8.dshpocket.ui.theme.DSHPocketTheme

@@ -1,4 +1,4 @@
-package com.fioiu8.dshpocket.ui.state
+package com.fioiu8.dshpocket.data.session
 
 import com.fioiu8.dshpocket.engine.EngineApi
 import com.fioiu8.dshpocket.engine.EngineApi.RpcResult

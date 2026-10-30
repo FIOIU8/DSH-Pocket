@@ -5,9 +5,9 @@ import android.os.Build
 import android.util.Log
 import com.fioiu8.dshpocket.R
 import com.fioiu8.dshpocket.BuildConfig
-import com.fioiu8.dshpocket.ui.UiText
-import com.fioiu8.dshpocket.ui.text
-import com.fioiu8.dshpocket.ui.AppLanguagePreferences
+import com.fioiu8.dshpocket.core.AppLanguagePreferences
+import com.fioiu8.dshpocket.core.UiText
+import com.fioiu8.dshpocket.core.text
 import java.io.BufferedInputStream
 import java.io.File
 import java.io.FileOutputStream

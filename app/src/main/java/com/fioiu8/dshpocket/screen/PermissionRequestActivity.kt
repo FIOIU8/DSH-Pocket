@@ -36,7 +36,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.fioiu8.dshpocket.ui.theme.DSHPocketTheme
-import com.fioiu8.dshpocket.ui.AppLanguagePreferences
+import com.fioiu8.dshpocket.core.AppLanguagePreferences
 import kotlinx.coroutines.delay
 
 /**

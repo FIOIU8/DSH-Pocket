@@ -1,7 +1,7 @@
 package com.fioiu8.dshpocket
 
 import com.fioiu8.dshpocket.notify.TurnNotifier
-import com.fioiu8.dshpocket.ui.state.SessionRow
+import com.fioiu8.dshpocket.data.session.SessionRow
 import org.junit.Assert.assertEquals
 import org.junit.Test
 

@@ -1,4 +1,4 @@
-package com.fioiu8.dshpocket.ui
+package com.fioiu8.dshpocket.core
 
 import android.content.Context
 import android.content.res.Configuration
@@ -46,4 +46,3 @@ object AppLanguagePreferences {
 
     fun selectedLanguage(context: Context): AppLanguage = read(context)
 }
-

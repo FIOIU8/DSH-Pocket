@@ -1,13 +1,13 @@
 package com.fioiu8.dshpocket
 
 import com.fioiu8.dshpocket.engine.EngineApi.RpcResult
-import com.fioiu8.dshpocket.ui.state.ArchiveStore
-import com.fioiu8.dshpocket.ui.state.SessionFilter
-import com.fioiu8.dshpocket.ui.state.SessionLoadState
-import com.fioiu8.dshpocket.ui.state.SessionQuery
-import com.fioiu8.dshpocket.ui.state.SessionRepository
-import com.fioiu8.dshpocket.ui.state.SessionRow
-import com.fioiu8.dshpocket.ui.state.SessionSource
+import com.fioiu8.dshpocket.data.session.ArchiveStore
+import com.fioiu8.dshpocket.data.session.SessionFilter
+import com.fioiu8.dshpocket.data.session.SessionLoadState
+import com.fioiu8.dshpocket.data.session.SessionQuery
+import com.fioiu8.dshpocket.data.session.SessionRepository
+import com.fioiu8.dshpocket.data.session.SessionRow
+import com.fioiu8.dshpocket.data.session.SessionSource
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope

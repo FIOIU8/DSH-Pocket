@@ -7,7 +7,7 @@ import org.json.JSONObject
  *
  * Moved out of the screen so the parsing can be tested. It carries raw values — an empty
  * display name stays empty until the UI decides what to show — for the same reason
- * [com.fioiu8.dshpocket.ui.state.SessionRow.title] is nullable.
+ * [com.fioiu8.dshpocket.data.session.SessionRow.title] is nullable.
  */
 data class ProviderInfo(
     val id: String,

@@ -12,9 +12,9 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.fioiu8.dshpocket.R
+import com.fioiu8.dshpocket.core.AppLanguagePreferences
+import com.fioiu8.dshpocket.core.text
 import com.fioiu8.dshpocket.screen.ScreenControlManager
-import com.fioiu8.dshpocket.ui.AppLanguagePreferences
-import com.fioiu8.dshpocket.ui.text
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob

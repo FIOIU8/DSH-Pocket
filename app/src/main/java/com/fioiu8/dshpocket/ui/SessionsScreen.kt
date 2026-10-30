@@ -57,11 +57,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.fioiu8.dshpocket.engine.EngineState
-import com.fioiu8.dshpocket.ui.state.SessionLoadState
-import com.fioiu8.dshpocket.ui.state.SessionFilter
-import com.fioiu8.dshpocket.ui.state.SessionQuery
-import com.fioiu8.dshpocket.ui.state.SessionRepository
-import com.fioiu8.dshpocket.ui.state.SessionRow
+import com.fioiu8.dshpocket.data.session.SessionLoadState
+import com.fioiu8.dshpocket.data.session.SessionFilter
+import com.fioiu8.dshpocket.data.session.SessionQuery
+import com.fioiu8.dshpocket.data.session.SessionRepository
+import com.fioiu8.dshpocket.data.session.SessionRow
 import com.fioiu8.dshpocket.ui.state.SessionViewModel
 import com.fioiu8.dshpocket.ui.state.SessionViewModelFactory
 import kotlinx.coroutines.delay

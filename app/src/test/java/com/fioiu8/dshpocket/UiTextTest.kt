@@ -1,7 +1,7 @@
 package com.fioiu8.dshpocket
 
-import com.fioiu8.dshpocket.ui.UiText
-import com.fioiu8.dshpocket.ui.text
+import com.fioiu8.dshpocket.core.UiText
+import com.fioiu8.dshpocket.core.text
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test

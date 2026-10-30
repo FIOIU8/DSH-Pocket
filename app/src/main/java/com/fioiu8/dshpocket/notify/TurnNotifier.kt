@@ -12,10 +12,10 @@ import com.fioiu8.dshpocket.R
 import com.fioiu8.dshpocket.engine.EngineApi
 import com.fioiu8.dshpocket.engine.EngineApi.RpcResult
 import com.fioiu8.dshpocket.engine.EngineState
-import com.fioiu8.dshpocket.ui.state.EngineSessionSource
-import com.fioiu8.dshpocket.ui.AppLanguagePreferences
-import com.fioiu8.dshpocket.ui.state.SessionRow
-import com.fioiu8.dshpocket.ui.state.parseRows
+import com.fioiu8.dshpocket.core.AppLanguagePreferences
+import com.fioiu8.dshpocket.data.session.EngineSessionSource
+import com.fioiu8.dshpocket.data.session.SessionRow
+import com.fioiu8.dshpocket.data.session.parseRows
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay

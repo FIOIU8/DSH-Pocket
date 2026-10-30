@@ -1,5 +1,7 @@
 package com.fioiu8.dshpocket.ui.state
 
+import com.fioiu8.dshpocket.data.session.SessionRepository
+
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 

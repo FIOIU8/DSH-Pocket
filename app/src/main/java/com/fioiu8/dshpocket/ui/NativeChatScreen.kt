@@ -98,7 +98,7 @@ import com.fioiu8.dshpocket.engine.EngineState
 import com.fioiu8.dshpocket.overlay.ThoughtStreamBus
 import com.fioiu8.dshpocket.ui.state.PromptOutcome
 import com.fioiu8.dshpocket.ui.state.NativeChatToolCallStore
-import com.fioiu8.dshpocket.ui.state.SessionRepository
+import com.fioiu8.dshpocket.data.session.SessionRepository
 import com.fioiu8.dshpocket.ui.state.SessionViewModel
 import com.fioiu8.dshpocket.ui.state.SessionViewModelFactory
 import com.fioiu8.dshpocket.ui.theme.DshSpacing

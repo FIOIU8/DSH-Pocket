@@ -6,9 +6,9 @@ import android.util.Log
 import com.fioiu8.dshpocket.R
 import com.fioiu8.dshpocket.capability.AgentBriefing
 import com.fioiu8.dshpocket.capability.Capabilities
+import com.fioiu8.dshpocket.core.UiText
+import com.fioiu8.dshpocket.core.text
 import com.fioiu8.dshpocket.screen.ScreenControlManager
-import com.fioiu8.dshpocket.ui.UiText
-import com.fioiu8.dshpocket.ui.text
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
