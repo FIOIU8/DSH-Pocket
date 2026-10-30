@@ -23,6 +23,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.res.stringResource
+import com.fioiu8.dshpocket.R
+import com.fioiu8.dshpocket.ui.AppLanguagePreferences
 import com.fioiu8.dshpocket.ui.theme.DSHPocketTheme
 
 /**
@@ -35,6 +38,10 @@ import com.fioiu8.dshpocket.ui.theme.DSHPocketTheme
  * already requires doubles as the background-activity-launch exemption.
  */
 class PermissionDialogActivity : ComponentActivity() {
+
+    override fun attachBaseContext(newBase: Context) {
+        super.attachBaseContext(AppLanguagePreferences.localizedContext(newBase))
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -85,7 +92,7 @@ private fun GateContent(request: GateRequest, onDecision: (GateDecision) -> Unit
         Card(modifier = Modifier.padding(24.dp).widthIn(max = 480.dp)) {
             Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
-                    text = "AI 请求执行屏幕操作",
+                    text = stringResource(R.string.screen_gate_title),
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.SemiBold,
                 )
@@ -94,24 +101,24 @@ private fun GateContent(request: GateRequest, onDecision: (GateDecision) -> Unit
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 Text(
-                    text = "AI 说明：${request.reason}",
+                    text = stringResource(R.string.screen_gate_reason, request.reason),
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 Text(
-                    text = "审查判定：${request.verdictReason}",
+                    text = stringResource(R.string.screen_gate_verdict, request.verdictReason),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error,
                 )
                 Text(
-                    text = "「本会话允许」只对相同应用、相同类型的后续操作生效，引擎重启后失效；屏幕操作没有永久豁免。",
+                    text = stringResource(R.string.screen_gate_session_hint),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
                     androidx.compose.foundation.layout.Row {
-                        TextButton(onClick = { onDecision(GateDecision.DENY) }) { Text("拒绝") }
-                        TextButton(onClick = { onDecision(GateDecision.ALLOW_SESSION) }) { Text("本会话允许") }
-                        TextButton(onClick = { onDecision(GateDecision.ALLOW_ONCE) }) { Text("仅本次允许") }
+                        TextButton(onClick = { onDecision(GateDecision.DENY) }) { Text(stringResource(R.string.screen_gate_deny)) }
+                        TextButton(onClick = { onDecision(GateDecision.ALLOW_SESSION) }) { Text(stringResource(R.string.screen_gate_allow_session)) }
+                        TextButton(onClick = { onDecision(GateDecision.ALLOW_ONCE) }) { Text(stringResource(R.string.screen_gate_allow_once)) }
                     }
                 }
             }

@@ -61,6 +61,7 @@ import com.fioiu8.dshpocket.engine.EnginePaths
 import com.fioiu8.dshpocket.engine.EngineState
 import com.fioiu8.dshpocket.ui.theme.DshShapes
 import com.fioiu8.dshpocket.ui.theme.DshSpacing
+import com.fioiu8.dshpocket.ui.asString
 import com.fioiu8.dshpocket.ui.theme.dshControl
 import com.fioiu8.dshpocket.ui.theme.dshSpring
 import com.fioiu8.dshpocket.ui.theme.systemAnimationsEnabled
@@ -418,7 +419,7 @@ private fun FinishPage(actions: OnboardingActions) {
                 )
                 Spacer(Modifier.height(DshSpacing.compact))
                 Text(
-                    state.message,
+                    state.message.asString(),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center,

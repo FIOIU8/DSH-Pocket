@@ -42,6 +42,7 @@ class MainActivity : ComponentActivity() {
                             language = AppLanguagePreferences.selectedLanguage(this@MainActivity),
                             onLanguageChange = { language ->
                                 AppLanguagePreferences.save(this@MainActivity, language)
+                                EngineService.refresh(this@MainActivity)
                                 recreate()
                             },
                         )

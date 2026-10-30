@@ -36,6 +36,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.fioiu8.dshpocket.ui.theme.DSHPocketTheme
+import com.fioiu8.dshpocket.ui.AppLanguagePreferences
 import kotlinx.coroutines.delay
 
 /**
@@ -51,6 +52,10 @@ import kotlinx.coroutines.delay
  * and finishes on its own; every other exit resolves with the still-missing list.
  */
 class PermissionRequestActivity : ComponentActivity() {
+
+    override fun attachBaseContext(newBase: Context) {
+        super.attachBaseContext(AppLanguagePreferences.localizedContext(newBase))
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)

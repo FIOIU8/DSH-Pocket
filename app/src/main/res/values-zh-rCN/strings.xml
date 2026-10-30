@@ -105,4 +105,33 @@
     <string name="sc_disclosure_session">「本会话允许」覆盖本次引擎运行内的所有后续操作，引擎重启即失效；屏幕操作没有永久豁免。</string>
     <string name="sc_disclosure_audit">审计记录在本机保留最近 200 条，不脱敏，可随时清空。</string>
     <string name="sc_disclosure_marquee">跑马灯只是视觉提示，不是安全边界；通知栏的「停止 AI 操作」才是紧急开关。自我隐藏悬浮窗的系统应用（如系统设置）上边框也不会显示。</string>
+    <plurals name="home_turns_count"><item quantity="other">%1$d 轮</item></plurals>
+    <plurals name="sessions_steps_count"><item quantity="other">%1$d 步</item></plurals>
+    <plurals name="sessions_minutes_ago_count"><item quantity="other">%1$d 分钟前</item></plurals>
+    <plurals name="sessions_hours_ago_count"><item quantity="other">%1$d 小时前</item></plurals>
+    <plurals name="sessions_days_ago_count"><item quantity="other">%1$d 天前</item></plurals>
+
+    <string name="runtime_ready">运行时已就绪</string>
+    <string name="runtime_extracting">正在解压运行时…</string>
+    <string name="runtime_extracting_files">正在解压运行时… %1$d 个文件</string>
+    <string name="runtime_restoring_permissions">正在恢复执行权限…</string>
+    <string name="runtime_ready_files">运行时就绪（%1$d 个文件）</string>
+    <string name="runtime_abi_mismatch">内置运行时为 %1$s 架构，本机 ABI 为 %2$s；请安装匹配的运行时。</string>
+    <string name="runtime_cleanup_failed">无法清理旧运行时目录：%1$s</string>
+    <string name="runtime_invalid_archive_path">运行时压缩包包含非法路径：%1$s</string>
+    <string name="runtime_ripgrep_permission_failed">无法恢复内置 ripgrep 执行权限：%1$s</string>
+    <string name="engine_exit_ready">引擎已退出（退出码 %1$d）</string>
+    <string name="engine_exit_before_ready">引擎在就绪前退出（退出码 %1$d）</string>
+    <string name="engine_status_stopped">引擎已停止</string>
+    <string name="engine_status_running">引擎运行中</string>
+    <string name="engine_status_failed">引擎异常：%1$s</string>
+    <string name="engine_notification_channel">DSH Pocket 引擎</string>
+    <string name="engine_notification_channel_desc">保持本地 DSH 引擎运行</string>
+    <string name="screen_gate_title">AI 请求执行屏幕操作</string>
+    <string name="screen_gate_reason">AI 说明：%1$s</string>
+    <string name="screen_gate_verdict">审查判定：%1$s</string>
+    <string name="screen_gate_session_hint">“本会话允许”只对相同应用、相同类型的后续操作生效，引擎重启后失效；屏幕操作没有永久豁免。</string>
+    <string name="screen_gate_deny">拒绝</string>
+    <string name="screen_gate_allow_session">本会话允许</string>
+    <string name="screen_gate_allow_once">仅本次允许</string>
 </resources>

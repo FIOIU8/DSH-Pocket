@@ -358,7 +358,7 @@
 
     <string name="screen_accessibility_label">DSH Pocket screen control</string>
     <string name="screen_accessibility_description">Lets the DSH agent read the screen and perform taps, swipes and text input on your behalf. Every operation is announced with an on-screen border and reviewed before it runs; turn this off any time to disable the capability.</string>
-    <string name="screen_control_badge">AI 正在操作屏幕</string>
+    <string name="screen_control_badge">AI is operating the screen</string>
     <string name="screen_control_active_title">AI is operating the screen</string>
     <string name="screen_control_active_text">Tap to stop AI screen operations</string>
     <string name="screen_control_stop">Stop AI operations</string>
@@ -423,4 +423,34 @@
     <string name="sc_disclosure_session">"Allow for this session" covers every later operation of this engine run and dies with the engine restart. There is no permanent exemption.</string>
     <string name="sc_disclosure_audit">The audit trail keeps the last 200 decisions on this device, unredacted, clearable any time.</string>
     <string name="sc_disclosure_marquee">The marquee is a visual hint, not a security boundary; the notification\'s "stop" action is the emergency switch. System apps that hide overlays (e.g. Settings) also hide the border.</string>
+
+    <plurals name="home_turns_count"><item quantity="one">%1$d turn</item><item quantity="other">%1$d turns</item></plurals>
+    <plurals name="sessions_steps_count"><item quantity="one">%1$d step</item><item quantity="other">%1$d steps</item></plurals>
+    <plurals name="sessions_minutes_ago_count"><item quantity="one">%1$d minute ago</item><item quantity="other">%1$d minutes ago</item></plurals>
+    <plurals name="sessions_hours_ago_count"><item quantity="one">%1$d hour ago</item><item quantity="other">%1$d hours ago</item></plurals>
+    <plurals name="sessions_days_ago_count"><item quantity="one">%1$d day ago</item><item quantity="other">%1$d days ago</item></plurals>
+
+    <string name="runtime_ready">Runtime ready</string>
+    <string name="runtime_extracting">Extracting runtime…</string>
+    <string name="runtime_extracting_files">Extracting runtime… %1$d files</string>
+    <string name="runtime_restoring_permissions">Restoring executable permissions…</string>
+    <string name="runtime_ready_files">Runtime ready (%1$d files)</string>
+    <string name="runtime_abi_mismatch">The bundled runtime targets %1$s, but this device reports %2$s. Install a matching runtime.</string>
+    <string name="runtime_cleanup_failed">Could not remove the old runtime directory: %1$s</string>
+    <string name="runtime_invalid_archive_path">The runtime archive contains an invalid path: %1$s</string>
+    <string name="runtime_ripgrep_permission_failed">Could not restore executable permission for bundled ripgrep: %1$s</string>
+    <string name="engine_exit_ready">Engine exited (code %1$d)</string>
+    <string name="engine_exit_before_ready">Engine exited before becoming ready (code %1$d)</string>
+    <string name="engine_status_stopped">Engine stopped</string>
+    <string name="engine_status_running">Engine running</string>
+    <string name="engine_status_failed">Engine error: %1$s</string>
+    <string name="engine_notification_channel">DSH Pocket engine</string>
+    <string name="engine_notification_channel_desc">Keeps the local DSH engine running</string>
+    <string name="screen_gate_title">AI requests a screen operation</string>
+    <string name="screen_gate_reason">AI explanation: %1$s</string>
+    <string name="screen_gate_verdict">Review decision: %1$s</string>
+    <string name="screen_gate_session_hint">Allow for this session applies to later operations from the same app and operation type. It expires when the engine restarts; screen operations never receive a permanent exemption.</string>
+    <string name="screen_gate_deny">Deny</string>
+    <string name="screen_gate_allow_session">Allow for session</string>
+    <string name="screen_gate_allow_once">Allow once</string>
 </resources>

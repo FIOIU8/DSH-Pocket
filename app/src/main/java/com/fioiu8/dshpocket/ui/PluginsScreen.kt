@@ -141,7 +141,7 @@ fun PluginsScreen(state: EngineState, onMenu: () -> Unit, pluginRepository: Plug
             when {
                 state !is EngineState.Ready -> CenteredMessage(
                     title = stringResource(com.fioiu8.dshpocket.R.string.engine_not_ready),
-                    body = (state as? EngineState.Busy)?.message ?: stringResource(com.fioiu8.dshpocket.R.string.engine_start_to_manage_plugins),
+                    body = (state as? EngineState.Busy)?.message?.asString() ?: stringResource(com.fioiu8.dshpocket.R.string.engine_start_to_manage_plugins),
                     busy = state is EngineState.Busy,
                 )
 

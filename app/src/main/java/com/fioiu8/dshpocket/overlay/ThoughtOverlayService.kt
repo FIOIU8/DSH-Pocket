@@ -13,6 +13,7 @@ import android.util.Log
 import android.view.Gravity
 import android.view.WindowManager
 import com.fioiu8.dshpocket.screen.ScreenControlManager
+import com.fioiu8.dshpocket.ui.AppLanguagePreferences
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -121,7 +122,7 @@ class ThoughtOverlayService : Service() {
     }
 
     private fun attach() {
-        val created = ThoughtOverlayView(this)
+        val created = ThoughtOverlayView(AppLanguagePreferences.localizedContext(this))
         try {
             getSystemService(WindowManager::class.java).addView(created, overlayParams())
             view = created
@@ -144,7 +145,7 @@ class ThoughtOverlayService : Service() {
 
     private fun showDoneCard() {
         if (doneView != null) return
-        val card = TurnDoneView(this).apply {
+        val card = TurnDoneView(AppLanguagePreferences.localizedContext(this)).apply {
             onReturn = {
                 hideDoneCard()
                 try {

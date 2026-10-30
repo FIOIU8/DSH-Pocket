@@ -804,8 +804,8 @@ fun NativeChatScreen(
                 ready == null -> CenteredMessage(
                     title = if (state is EngineState.Failed) stringResource(com.fioiu8.dshpocket.R.string.engine_failed_to_start) else stringResource(com.fioiu8.dshpocket.R.string.engine_starting),
                     body = when (state) {
-                        is EngineState.Failed -> state.message
-                        is EngineState.Busy -> state.message
+                        is EngineState.Failed -> state.message.asString()
+                        is EngineState.Busy -> state.message.asString()
                         else -> stringResource(com.fioiu8.dshpocket.R.string.engine_preparing)
                     },
                     busy = state !is EngineState.Failed,

@@ -95,7 +95,7 @@ fun ModelsScreen(state: EngineState, onMenu: () -> Unit, modelRepository: ModelR
             Column(Modifier.fillMaxSize().padding(padding)) {
                 CenteredMessage(
                     title = stringResource(com.fioiu8.dshpocket.R.string.engine_not_ready),
-                    body = (state as? EngineState.Busy)?.message ?: stringResource(com.fioiu8.dshpocket.R.string.engine_start_to_configure_models),
+                    body = (state as? EngineState.Busy)?.message?.asString() ?: stringResource(com.fioiu8.dshpocket.R.string.engine_start_to_configure_models),
                     busy = state is EngineState.Busy,
                 )
             }

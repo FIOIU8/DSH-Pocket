@@ -467,8 +467,8 @@ private fun EngineCard(state: EngineState, showLog: Boolean, onRestart: () -> Un
     }
     val statusText = when (state) {
         is EngineState.Ready -> stringResource(com.fioiu8.dshpocket.R.string.settings_status_running, state.baseUrl, formatDuration(uptimeNow - state.since))
-        is EngineState.Busy -> stringResource(com.fioiu8.dshpocket.R.string.settings_status_starting, state.message)
-        is EngineState.Failed -> stringResource(com.fioiu8.dshpocket.R.string.settings_status_failed, state.message)
+        is EngineState.Busy -> stringResource(com.fioiu8.dshpocket.R.string.settings_status_starting, state.message.asString())
+        is EngineState.Failed -> stringResource(com.fioiu8.dshpocket.R.string.settings_status_failed, state.message.asString())
         EngineState.Idle -> stringResource(com.fioiu8.dshpocket.R.string.settings_status_stopped)
     }
     Card(

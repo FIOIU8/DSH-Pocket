@@ -3,9 +3,12 @@ package com.fioiu8.dshpocket.engine
 import android.app.Application
 import android.os.Build
 import android.util.Log
+import com.fioiu8.dshpocket.R
 import com.fioiu8.dshpocket.capability.AgentBriefing
 import com.fioiu8.dshpocket.capability.Capabilities
 import com.fioiu8.dshpocket.screen.ScreenControlManager
+import com.fioiu8.dshpocket.ui.UiText
+import com.fioiu8.dshpocket.ui.text
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
@@ -35,13 +38,13 @@ sealed interface EngineState {
      * (runtime extraction); null means indeterminate — the UI shows a spinner-style
      * indicator instead of a percentage.
      */
-    data class Busy(val message: String, val fraction: Float? = null) : EngineState
+    data class Busy(val message: UiText, val fraction: Float? = null) : EngineState
     data class Ready(
         val baseUrl: String,
         val token: String,
         val since: Long = System.currentTimeMillis(),
     ) : EngineState
-    data class Failed(val message: String) : EngineState
+    data class Failed(val message: UiText) : EngineState
 }
 
 /**
@@ -209,7 +212,7 @@ class EngineController(private val context: Application) {
         try {
             if (!isCurrent(runId)) return
             if (!RuntimeInstaller.isInstalled(context)) {
-                var message = "准备运行时…"
+                var message: UiText = text(R.string.engine_preparing)
                 var fraction = 0f
                 fun publish() {
                     if (isCurrent(runId)) {
@@ -230,7 +233,7 @@ class EngineController(private val context: Application) {
                 )
             }
             if (!isCurrent(runId)) return
-            _state.value = EngineState.Busy("启动引擎…")
+            _state.value = EngineState.Busy(text(R.string.engine_starting))
             spawn(root, runId)
         } catch (cancelled: CancellationException) {
             throw cancelled
@@ -238,7 +241,7 @@ class EngineController(private val context: Application) {
             Log.e(TAG, "boot failed", t)
             if (isCurrent(runId)) {
                 started.set(false)
-                _state.value = EngineState.Failed(t.message ?: t.toString())
+                _state.value = EngineState.Failed(UiText.Raw(t.message ?: t.toString()))
             }
         }
     }
@@ -288,11 +291,7 @@ class EngineController(private val context: Application) {
             if (isCurrent(runId)) {
                 started.set(false)
                 _state.value = EngineState.Failed(
-                    if (_state.value is EngineState.Ready) {
-                        "引擎已退出（退出码 $code）"
-                    } else {
-                        "引擎退出，退出码 $code"
-                    },
+                    text(if (_state.value is EngineState.Ready) R.string.engine_exit_ready else R.string.engine_exit_before_ready, code),
                 )
             }
         }

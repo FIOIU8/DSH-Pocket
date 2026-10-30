@@ -18,6 +18,7 @@ import android.view.WindowManager
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.fioiu8.dshpocket.R
+import com.fioiu8.dshpocket.ui.AppLanguagePreferences
 
 /**
  * Hosts the marquee overlay and the "stop the AI" notification while operations run
@@ -108,7 +109,7 @@ class ScreenControlService : Service() {
                 confirm()
                 return@post
             }
-            val view = MarqueeOverlayView(this)
+            val view = MarqueeOverlayView(AppLanguagePreferences.localizedContext(this))
             try {
                 getSystemService(WindowManager::class.java).addView(view, overlayParams())
                 overlay = view
@@ -162,11 +163,12 @@ class ScreenControlService : Service() {
             Intent(this, ScreenControlService::class.java).setAction(ACTION_STOP),
             PendingIntent.FLAG_IMMUTABLE,
         )
-        return NotificationCompat.Builder(this, CHANNEL_ID)
+        val localized = AppLanguagePreferences.localizedContext(this)
+        return NotificationCompat.Builder(localized, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
-            .setContentTitle(getString(R.string.screen_control_active_title))
-            .setContentText(getString(R.string.screen_control_active_text))
-            .addAction(0, getString(R.string.screen_control_stop), stopIntent)
+            .setContentTitle(localized.getString(R.string.screen_control_active_title))
+            .setContentText(localized.getString(R.string.screen_control_active_text))
+            .addAction(0, localized.getString(R.string.screen_control_stop), stopIntent)
             .setOngoing(true)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
@@ -175,12 +177,13 @@ class ScreenControlService : Service() {
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        val localized = AppLanguagePreferences.localizedContext(this)
         val channel = NotificationChannel(
             CHANNEL_ID,
-            getString(R.string.screen_control_channel_name),
+            localized.getString(R.string.screen_control_channel_name),
             NotificationManager.IMPORTANCE_LOW,
         ).apply {
-            description = getString(R.string.screen_control_channel_desc)
+            description = localized.getString(R.string.screen_control_channel_desc)
             setShowBadge(false)
         }
         getSystemService(NotificationManager::class.java).createNotificationChannel(channel)

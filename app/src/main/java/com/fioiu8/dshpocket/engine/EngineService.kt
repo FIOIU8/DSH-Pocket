@@ -13,6 +13,8 @@ import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.fioiu8.dshpocket.R
 import com.fioiu8.dshpocket.screen.ScreenControlManager
+import com.fioiu8.dshpocket.ui.AppLanguagePreferences
+import com.fioiu8.dshpocket.ui.text
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -31,6 +33,8 @@ class EngineService : Service() {
         private const val TAG = "EngineService"
         private const val CHANNEL_ID = "engine"
         private const val NOTIFICATION_ID = 3080
+        @Volatile
+        private var activeService: EngineService? = null
         private const val HEALTH_INTERVAL_MS = 15_000L
         private const val RESTART_COOLDOWN_MS = 30_000L
 
@@ -52,6 +56,12 @@ class EngineService : Service() {
         fun stop(context: Context) {
             context.stopService(Intent(context, EngineService::class.java))
         }
+
+        fun refresh(context: Context) {
+            activeService?.let { service ->
+                service.updateNotification(service.controller.state.value)
+            }
+        }
     }
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -59,10 +69,11 @@ class EngineService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        activeService = this
         controller = EngineController.get(application)
         createNotificationChannel()
         try {
-            startForeground(NOTIFICATION_ID, notification(EngineState.Busy("准备中…")))
+            startForeground(NOTIFICATION_ID, notification(EngineState.Busy(text(R.string.engine_preparing))))
         } catch (t: Throwable) {
             Log.e(TAG, "unable to enter foreground", t)
             stopSelf()
@@ -88,6 +99,7 @@ class EngineService : Service() {
     }
 
     override fun onDestroy() {
+        if (activeService === this) activeService = null
         serviceScope.cancel()
         ScreenControlManager.get(application).stop()
         if (::controller.isInitialized) controller.stop()
@@ -114,7 +126,8 @@ class EngineService : Service() {
                 val now = System.currentTimeMillis()
                 if (now - lastRestartAt >= RESTART_COOLDOWN_MS) {
                     lastRestartAt = now
-                    val reason = (state as? EngineState.Failed)?.message ?: "unreachable while Ready"
+                    val reason = (state as? EngineState.Failed)?.message?.resolve(AppLanguagePreferences.localizedContext(this@EngineService))
+                        ?: "unreachable while Ready"
                     Log.w(TAG, "engine unhealthy ($reason); restarting")
                     controller.restart()
                 }
@@ -126,10 +139,10 @@ class EngineService : Service() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val channel = NotificationChannel(
             CHANNEL_ID,
-            "DSH Pocket 引擎",
+            localizedContext().getString(R.string.engine_notification_channel),
             NotificationManager.IMPORTANCE_LOW,
         ).apply {
-            description = "保持本地 DSH 引擎运行"
+            description = localizedContext().getString(R.string.engine_notification_channel_desc)
             setShowBadge(false)
         }
         getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
@@ -141,20 +154,22 @@ class EngineService : Service() {
     }
 
     private fun notification(state: EngineState): Notification =
-        NotificationCompat.Builder(this, CHANNEL_ID)
+        NotificationCompat.Builder(localizedContext(), CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
-            .setContentTitle("DSH Pocket")
-            .setContentText(state.label())
+            .setContentTitle(localizedContext().getString(R.string.app_name))
+            .setContentText(state.label(localizedContext()))
             .setOngoing(true)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
             .build()
 
-    private fun EngineState.label(): String = when (this) {
-        EngineState.Idle -> "引擎已停止"
-        is EngineState.Busy -> message
-        is EngineState.Ready -> "引擎运行中"
-        is EngineState.Failed -> "引擎异常：$message"
+    private fun localizedContext(): Context = AppLanguagePreferences.localizedContext(this)
+
+    private fun EngineState.label(context: Context): String = when (this) {
+        EngineState.Idle -> context.getString(R.string.engine_status_stopped)
+        is EngineState.Busy -> message.resolve(context)
+        is EngineState.Ready -> context.getString(R.string.engine_status_running)
+        is EngineState.Failed -> context.getString(R.string.engine_status_failed, message.resolve(context))
     }
 }
 

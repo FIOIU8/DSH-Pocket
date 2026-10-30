@@ -13,6 +13,7 @@ import com.fioiu8.dshpocket.engine.EngineApi
 import com.fioiu8.dshpocket.engine.EngineApi.RpcResult
 import com.fioiu8.dshpocket.engine.EngineState
 import com.fioiu8.dshpocket.ui.state.EngineSessionSource
+import com.fioiu8.dshpocket.ui.AppLanguagePreferences
 import com.fioiu8.dshpocket.ui.state.SessionRow
 import com.fioiu8.dshpocket.ui.state.parseRows
 import kotlinx.coroutines.CoroutineScope
@@ -44,11 +45,12 @@ object TurnNotifier {
     /** (Re)starts watching. Cancels any previous loop; a fresh [Ready] starts from silence. */
     fun watch(scope: CoroutineScope, context: Context, ready: EngineState.Ready) {
         stop()
-        ensureChannel(context)
+        val localized = AppLanguagePreferences.localizedContext(context)
+        ensureChannel(localized)
         job = scope.launch {
             val source = EngineSessionSource(ready.baseUrl, ready.token)
             while (isActive) {
-                pollOnce(context, source)
+                pollOnce(localized, source)
                 delay(POLL_INTERVAL_MS)
             }
         }

@@ -65,6 +65,7 @@ import com.fioiu8.dshpocket.engine.EngineState
 import com.fioiu8.dshpocket.ui.readCapabilities
 import com.fioiu8.dshpocket.ui.theme.DshMotion
 import com.fioiu8.dshpocket.ui.theme.DshSpacing
+import com.fioiu8.dshpocket.ui.asString
 import com.fioiu8.dshpocket.ui.theme.dshControl
 import com.fioiu8.dshpocket.ui.theme.dshSpring
 import com.fioiu8.dshpocket.ui.theme.motionDuration
@@ -375,7 +376,7 @@ private fun EngineProgressFooter(state: EngineState, onRetry: () -> Unit) {
                             color = MaterialTheme.colorScheme.error,
                         )
                         Text(
-                            state.message,
+                            state.message.asString(),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 2,

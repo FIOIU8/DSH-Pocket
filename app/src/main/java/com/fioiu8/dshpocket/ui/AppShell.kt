@@ -886,13 +886,13 @@ private fun ChatScreen(
 
             is EngineState.Failed -> CenteredMessage(
                 title = stringResource(com.fioiu8.dshpocket.R.string.engine_failed_to_start),
-                body = state.message,
+                body = state.message.asString(),
                 busy = false,
             )
 
             else -> CenteredMessage(
                 title = stringResource(com.fioiu8.dshpocket.R.string.engine_starting),
-                body = (state as? EngineState.Busy)?.message ?: stringResource(com.fioiu8.dshpocket.R.string.engine_preparing),
+                body = (state as? EngineState.Busy)?.message?.asString() ?: stringResource(com.fioiu8.dshpocket.R.string.engine_preparing),
                 busy = true,
             )
         }

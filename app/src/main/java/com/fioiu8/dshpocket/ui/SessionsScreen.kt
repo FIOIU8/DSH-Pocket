@@ -51,6 +51,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -198,7 +199,7 @@ fun SessionsScreen(
                 SessionLoadState.Loading -> if (state !is EngineState.Ready) {
                     CenteredMessage(
                         title = stringResource(com.fioiu8.dshpocket.R.string.engine_not_ready),
-                        body = (state as? EngineState.Busy)?.message ?: stringResource(com.fioiu8.dshpocket.R.string.engine_start_to_manage_sessions),
+                        body = (state as? EngineState.Busy)?.message?.asString() ?: stringResource(com.fioiu8.dshpocket.R.string.engine_start_to_manage_sessions),
                         busy = state is EngineState.Busy,
                     )
                 } else {
@@ -333,7 +334,7 @@ private fun SessionRowItem(
             Text(
                 listOfNotNull(
                     statusLabel,
-                    stringResource(com.fioiu8.dshpocket.R.string.sessions_steps, row.steps),
+                    pluralStringResource(com.fioiu8.dshpocket.R.plurals.sessions_steps_count, row.steps, row.steps),
                     relativeTime(row.updatedAt, now),
                 ).joinToString(" · "),
                 style = MaterialTheme.typography.bodySmall,
@@ -396,8 +397,8 @@ private fun relativeTime(epochMillis: Long, now: Long): String {
     val minutes = TimeUnit.MILLISECONDS.toMinutes(diff)
     return when {
         minutes < 1 -> stringResource(com.fioiu8.dshpocket.R.string.sessions_just_now)
-        minutes < 60 -> stringResource(com.fioiu8.dshpocket.R.string.sessions_minutes_ago, minutes)
-        minutes < 60 * 24 -> stringResource(com.fioiu8.dshpocket.R.string.sessions_hours_ago, minutes / 60)
-        else -> stringResource(com.fioiu8.dshpocket.R.string.sessions_days_ago, minutes / (60 * 24))
+        minutes < 60 -> pluralStringResource(com.fioiu8.dshpocket.R.plurals.sessions_minutes_ago_count, minutes.toInt(), minutes)
+        minutes < 60 * 24 -> pluralStringResource(com.fioiu8.dshpocket.R.plurals.sessions_hours_ago_count, (minutes / 60).toInt(), minutes / 60)
+        else -> pluralStringResource(com.fioiu8.dshpocket.R.plurals.sessions_days_ago_count, (minutes / (60 * 24)).toInt(), minutes / (60 * 24))
     }
 }

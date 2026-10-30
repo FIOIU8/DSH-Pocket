@@ -43,6 +43,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.res.pluralStringResource
 import com.fioiu8.dshpocket.engine.EngineApi
 import com.fioiu8.dshpocket.ui.state.SessionLoadState
 import com.fioiu8.dshpocket.ui.state.SessionRepository
@@ -119,7 +120,7 @@ fun HomeScreen(
 @Composable
 private fun subtitleFor(state: EngineState): String = when (state) {
     is EngineState.Ready -> stringResource(com.fioiu8.dshpocket.R.string.home_node_running)
-    is EngineState.Busy -> stringResource(com.fioiu8.dshpocket.R.string.home_starting) + " · ${state.message}"
+    is EngineState.Busy -> stringResource(com.fioiu8.dshpocket.R.string.home_starting) + " · ${state.message.asString()}"
     is EngineState.Failed -> stringResource(com.fioiu8.dshpocket.R.string.home_engine_error)
     EngineState.Idle -> stringResource(com.fioiu8.dshpocket.R.string.home_engine_stopped)
 }
@@ -177,7 +178,7 @@ private fun LatestSessionSection(repository: SessionRepository, onOpenChat: () -
                         session?.let {
                             listOfNotNull(
                                 if (it.running) stringResource(com.fioiu8.dshpocket.R.string.home_session_running) else stringResource(com.fioiu8.dshpocket.R.string.home_session_ready),
-                                stringResource(com.fioiu8.dshpocket.R.string.home_turns, it.turns),
+                                pluralStringResource(com.fioiu8.dshpocket.R.plurals.home_turns_count, it.turns, it.turns),
                             ).joinToString(" · ")
                         } ?: stringResource(com.fioiu8.dshpocket.R.string.home_start_session),
                         style = MaterialTheme.typography.bodySmall,
@@ -274,12 +275,12 @@ private fun CoreStatusCard(state: EngineState, now: Long, onRestart: () -> Unit)
 
         is EngineState.Busy -> {
             title = stringResource(com.fioiu8.dshpocket.R.string.home_starting)
-            detail = state.message
+            detail = state.message.asString()
         }
 
         is EngineState.Failed -> {
             title = stringResource(com.fioiu8.dshpocket.R.string.home_engine_error)
-            detail = state.message
+            detail = state.message.asString()
         }
 
         EngineState.Idle -> {

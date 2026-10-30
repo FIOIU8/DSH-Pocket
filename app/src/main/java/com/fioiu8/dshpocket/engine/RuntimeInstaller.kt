@@ -3,7 +3,11 @@ package com.fioiu8.dshpocket.engine
 import android.content.Context
 import android.os.Build
 import android.util.Log
+import com.fioiu8.dshpocket.R
 import com.fioiu8.dshpocket.BuildConfig
+import com.fioiu8.dshpocket.ui.UiText
+import com.fioiu8.dshpocket.ui.text
+import com.fioiu8.dshpocket.ui.AppLanguagePreferences
 import java.io.BufferedInputStream
 import java.io.File
 import java.io.FileOutputStream
@@ -53,26 +57,30 @@ object RuntimeInstaller {
      * @param onFraction receives extraction progress as 0..1 (called from a background
      *   thread), or nothing when the packaged size cannot be determined up front.
      */
-    fun install(context: Context, onProgress: (String) -> Unit, onFraction: ((Float) -> Unit)? = null) {
+    fun install(context: Context, onProgress: (UiText) -> Unit, onFraction: ((Float) -> Unit)? = null) {
+        val localized = AppLanguagePreferences.localizedContext(context)
         val root = EnginePaths.root(context)
         val marker = EnginePaths.installMarker(context)
         if (isInstalled(context)) {
-            onProgress("运行时已就绪")
+            onProgress(text(R.string.runtime_ready))
             onFraction?.invoke(1f)
             return
         }
 
         if (!abiSupported()) {
-            error(
-                "内置运行时是为 $BUNDLED_ABI 构建的，本机 ABI 为 " +
-                    Build.SUPPORTED_ABIS.joinToString()+ "；请安装匹配的运行时。"
+            throw IllegalStateException(
+                text(
+                    R.string.runtime_abi_mismatch,
+                    BUNDLED_ABI,
+                    Build.SUPPORTED_ABIS.joinToString(),
+                ).resolve(localized),
             )
         }
 
-        onProgress("解压运行时…")
+        onProgress(text(R.string.runtime_extracting))
         onFraction?.invoke(0f)
         if (root.exists() && !root.deleteRecursively()) {
-            error("无法清理旧运行时目录：${root.absolutePath}")
+            error(localized.getString(R.string.runtime_cleanup_failed, root.absolutePath))
         }
         root.mkdirs()
         var files = 0
@@ -96,7 +104,7 @@ object RuntimeInstaller {
                     val target = File(root, entry.name)
                     // zip-slip guard: never write outside the runtime root
                     if (!target.canonicalPath.startsWith(rootPath)) {
-                        error("运行时压缩包包含非法路径：${entry.name}")
+                        error(localized.getString(R.string.runtime_invalid_archive_path, entry.name))
                     }
                     if (entry.isDirectory) {
                         target.mkdirs()
@@ -105,7 +113,7 @@ object RuntimeInstaller {
                         FileOutputStream(target).use { out -> zip.copyTo(out, 1 shl 16) }
                         files++
                         if (files % 2000 == 0) {
-                            onProgress("解压运行时… $files 个文件")
+                            onProgress(text(R.string.runtime_extracting_files, files))
                             reportFraction()
                         }
                     }
@@ -115,12 +123,12 @@ object RuntimeInstaller {
             reportFraction()
         }
 
-        onProgress("恢复执行权限…")
+        onProgress(text(R.string.runtime_restoring_permissions))
         val bin = File(root, "bin")
         var executables = bin.listFiles()?.count { it.isFile && it.setExecutable(true, false) } ?: 0
         val ripgrep = ripgrepBinary(root)
         if (!ripgrep.isFile || !ripgrep.setExecutable(true, false)) {
-            error("无法恢复内置 ripgrep 执行权限：${ripgrep.absolutePath}")
+            error(localized.getString(R.string.runtime_ripgrep_permission_failed, ripgrep.absolutePath))
         }
         executables++
         Log.i(TAG, "extracted $files files, marked $executables executables")
@@ -128,7 +136,7 @@ object RuntimeInstaller {
         File(root, "home").mkdirs()
         File(root, "tmp").mkdirs()
         marker.writeText("${markerHeader(context)}\n$files files\n")
-        onProgress("运行时就绪（$files 个文件）")
+        onProgress(text(R.string.runtime_ready_files, files))
         onFraction?.invoke(1f)
     }
 
@@ -172,7 +180,7 @@ object RuntimeInstaller {
         val nodeArch = when (runtimeArch) {
             "x86_64" -> "x64"
             "aarch64" -> "arm64"
-            else -> error("不支持的运行时架构：$runtimeArch")
+            else -> error("Unsupported runtime architecture: $runtimeArch")
         }
         return File(root, "lib/node_modules/@vscode/ripgrep-android-$nodeArch/bin/rg")
     }
