@@ -47,7 +47,7 @@ The engine and its web UI communicate over `127.0.0.1`. Prompts and related cont
 
 Android libraries are resolved through Google Maven (with the Aliyun Google Maven mirror configured first) and Maven Central. Gradle plugins are resolved through Google Maven, Maven Central, and the Gradle Plugin Portal. The Compose BOM manages the versions of Compose artifacts. JUnit and `org.json` are test dependencies, not app runtime libraries.
 
-The Node runtime collector currently downloads these Termux packages: `nodejs-lts`, `libc++`, `openssl`, `c-ares`, `libicu`, `libsqlite`, `zlib`, `resolv-conf`, `ca-certificates`, `ripgrep`, and `pcre2`. Exact license identifiers and npm package versions are listed in [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md). Package versions are resolved from the Termux index at build time. These upstream components retain their own licenses and are not relicensed under this project's MIT license.
+The Node runtime collector currently downloads these Termux packages: `nodejs-lts`, `libc++`, `openssl`, `c-ares`, `libicu`, `libsqlite`, `zlib`, `resolv-conf`, `ca-certificates`, `ripgrep`, and `pcre2`. The build generates a local `THIRD-PARTY-NOTICES.md` inventory next to the runtime archive; it is intentionally excluded from Git. Package versions are resolved from the Termux index at build time. These upstream components retain their own licenses and are not relicensed under this project's MIT license.
 
 ## Build
 
@@ -84,7 +84,7 @@ keytool -genkeypair -v -keystore .keystore/debug.keystore -storepass android -al
 .\gradlew.bat --no-daemon testDebugUnitTest lintDebug assembleDebug -PruntimeArch=x86_64
 ```
 
-The debug APK is written to `app/build/outputs/apk/debug/app-debug.apk`. Release APKs are built by the GitHub Actions draft-release workflow and require repository secrets for a persistent signing key. See [`.github/WORKFLOWS.md`](.github/WORKFLOWS.md).
+The debug APK is written to `app/build/outputs/apk/debug/app-debug.apk`. Release APKs are built by the [GitHub Actions draft-release workflow](.github/workflows/release-draft.yml) and require repository secrets for a persistent signing key.
 
 ### Developer testing
 
@@ -92,4 +92,4 @@ For model-provider integration testing, use the [mock-model-provider](https://gi
 
 ## License
 
-Project-owned source code and assets are licensed under the MIT License; see [`LICENSE`](LICENSE). Third-party components bundled in the APK keep their own licenses and notices. In particular, the runtime includes MPL-2.0 components, and its WebAssembly image decoder (`@img/sharp-wasm32`) includes LGPL-3.0-or-later components. The runtime archive retains upstream license files where the package provides them; see [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md) for the current inventory and known packaging warnings. The MIT license does not replace or relicense third-party components. The DSH name and other third-party marks are not granted by this project license.
+Project-owned source code and assets are licensed under the MIT License; see [`LICENSE`](LICENSE). Third-party components bundled in the APK keep their own licenses and notices. In particular, the runtime includes MPL-2.0 components, and its WebAssembly image decoder (`@img/sharp-wasm32`) includes LGPL-3.0-or-later components. The runtime archive retains upstream license files where the package provides them; the build also generates a local `THIRD-PARTY-NOTICES.md` inventory. The MIT license does not replace or relicense third-party components. The DSH name and other third-party marks are not granted by this project license.

@@ -47,7 +47,7 @@
 
 Android 库通过 Google Maven（配置中优先使用阿里云 Google Maven 镜像）和 Maven Central 获取。Gradle 插件还使用 Gradle Plugin Portal。Compose BOM 统一管理 Compose 组件版本。JUnit 和 `org.json` 仅用于测试，不属于应用运行时依赖。
 
-运行时收集脚本会从 Termux 仓库获取 `nodejs-lts`、`libc++`、`openssl`、`c-ares`、`libicu`、`libsqlite`、`zlib`、`resolv-conf`、`ca-certificates`、`ripgrep` 和 `pcre2`。具体许可证标识及 npm 包版本见 [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md)；软件包版本在构建时从 Termux 索引解析。上述上游组件保留各自许可证，不受本项目 MIT 许可证重新授权。
+运行时收集脚本会从 Termux 仓库获取 `nodejs-lts`、`libc++`、`openssl`、`c-ares`、`libicu`、`libsqlite`、`zlib`、`resolv-conf`、`ca-certificates`、`ripgrep` 和 `pcre2`。构建过程会在运行时归档旁生成本地 `THIRD-PARTY-NOTICES.md` 清单；该文件按设计不会进入 Git。软件包版本在构建时从 Termux 索引解析。上述上游组件保留各自许可证，不受本项目 MIT 许可证重新授权。
 
 ## 构建
 
@@ -84,7 +84,7 @@ keytool -genkeypair -v -keystore .keystore/debug.keystore -storepass android -al
 .\gradlew.bat --no-daemon testDebugUnitTest lintDebug assembleDebug -PruntimeArch=x86_64
 ```
 
-Debug APK 输出到 `app/build/outputs/apk/debug/app-debug.apk`。正式 Release APK 由 GitHub Actions 草稿发布工作流构建，需要配置长期使用的签名密钥 Secrets，详见 [`.github/WORKFLOWS.md`](.github/WORKFLOWS.md)。
+Debug APK 输出到 `app/build/outputs/apk/debug/app-debug.apk`。正式 Release APK 由 [GitHub Actions 草稿发布工作流](.github/workflows/release-draft.yml) 构建，需要配置长期使用的签名密钥 Secrets。
 
 ### 开发者测试
 
@@ -92,4 +92,4 @@ Debug APK 输出到 `app/build/outputs/apk/debug/app-debug.apk`。正式 Release
 
 ## 许可证
 
-本项目自有源代码和资源采用 MIT 许可证，详见 [`LICENSE`](LICENSE)。APK 中打包的第三方组件仍适用各自许可证和声明；运行时包含 MPL-2.0 组件，其 WebAssembly 图像解码器（`@img/sharp-wasm32`）包含 LGPL-3.0-or-later 组件。运行时归档会保留上游包提供的许可证文件；当前清单及已发现的打包问题见 [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md)。项目 MIT 许可证不会替代或重新授权第三方组件。DSH 名称及其他第三方商标也不由本项目许可证授予。
+本项目自有源代码和资源采用 MIT 许可证，详见 [`LICENSE`](LICENSE)。APK 中打包的第三方组件仍适用各自许可证和声明；运行时包含 MPL-2.0 组件，其 WebAssembly 图像解码器（`@img/sharp-wasm32`）包含 LGPL-3.0-or-later 组件。运行时归档会保留上游包提供的许可证文件；构建过程还会生成本地 `THIRD-PARTY-NOTICES.md` 清单。项目 MIT 许可证不会替代或重新授权第三方组件。DSH 名称及其他第三方商标也不由本项目许可证授予。
