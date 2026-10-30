@@ -1,5 +1,8 @@
 package com.fioiu8.dshpocket.ui
 
+import com.fioiu8.dshpocket.data.chat.ChatReconnectPolicy
+import com.fioiu8.dshpocket.data.chat.canRegenerateTurn
+
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test

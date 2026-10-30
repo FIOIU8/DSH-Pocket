@@ -1,8 +1,8 @@
 package com.fioiu8.dshpocket
 
-import com.fioiu8.dshpocket.ui.NativeChatMessage
-import com.fioiu8.dshpocket.ui.applySessionEvent
-import com.fioiu8.dshpocket.ui.parseNativeChatMessages
+import com.fioiu8.dshpocket.data.chat.NativeChatMessage
+import com.fioiu8.dshpocket.data.chat.applySessionEvent
+import com.fioiu8.dshpocket.data.chat.parseNativeChatMessages
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals

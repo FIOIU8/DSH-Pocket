@@ -1,4 +1,4 @@
-package com.fioiu8.dshpocket.ui.state
+package com.fioiu8.dshpocket.data.chat
 
 import android.content.Context
 import java.io.File
@@ -12,7 +12,7 @@ import org.json.JSONObject
  * refresh replaces the live list, tool-call rows would vanish — and they are exactly
  * what the user wants to see. The follow stream, however, delivers every durable event
  * live, so each `tool/call` seen there is appended here and merged back into parsed
- * history by journal sequence ([NativeChatScreen] owns the merge).
+ * history by journal sequence (the chat message parser owns the merge).
  *
  * One small JSON file per session under `filesDir/native-chat/tool-calls/`; capped at
  * [MAX_ENTRIES] records per session, nothing leaves the device.

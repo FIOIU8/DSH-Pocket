@@ -1,13 +1,13 @@
 package com.fioiu8.dshpocket
 
 import com.fioiu8.dshpocket.data.session.archivedIdsFromValues
-import com.fioiu8.dshpocket.ui.NativeChatMessage
-import com.fioiu8.dshpocket.ui.latestNativeSuggestions
-import com.fioiu8.dshpocket.ui.isNativeSystemPrompt
-import com.fioiu8.dshpocket.ui.parseNativeChatMessages
-import com.fioiu8.dshpocket.ui.parseNativeModelCatalog
+import com.fioiu8.dshpocket.data.chat.NativeChatMessage
+import com.fioiu8.dshpocket.data.chat.latestNativeSuggestions
+import com.fioiu8.dshpocket.data.chat.isNativeSystemPrompt
+import com.fioiu8.dshpocket.data.chat.parseNativeChatMessages
+import com.fioiu8.dshpocket.data.chat.parseNativeModelCatalog
 import com.fioiu8.dshpocket.ui.markdownToAnnotatedString
-import com.fioiu8.dshpocket.ui.assistantStreamSnapshotText
+import com.fioiu8.dshpocket.data.chat.assistantStreamSnapshotText
 import com.fioiu8.dshpocket.ui.state.parseProviderModels
 import com.fioiu8.dshpocket.ui.state.localized
 import com.fioiu8.dshpocket.capability.AgentBriefing

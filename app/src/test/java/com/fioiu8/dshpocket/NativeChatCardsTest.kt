@@ -1,9 +1,9 @@
 package com.fioiu8.dshpocket
 
-import com.fioiu8.dshpocket.ui.NativeChatMessage
-import com.fioiu8.dshpocket.ui.applySessionEvent
+import com.fioiu8.dshpocket.data.chat.NativeChatMessage
+import com.fioiu8.dshpocket.data.chat.applySessionEvent
 import com.fioiu8.dshpocket.ui.formatSecondsValue
-import com.fioiu8.dshpocket.ui.parseNativeChatMessages
+import com.fioiu8.dshpocket.data.chat.parseNativeChatMessages
 import com.fioiu8.dshpocket.ui.prettyToolArguments
 import com.fioiu8.dshpocket.ui.toolCallLabel
 import com.fioiu8.dshpocket.ui.toolCallIcon
@@ -171,7 +171,7 @@ class NativeChatCardsTest {
             13,
         )
         val overlay = listOf(
-            com.fioiu8.dshpocket.ui.state.NativeChatToolCallStore.Entry(
+            com.fioiu8.dshpocket.data.chat.NativeChatToolCallStore.Entry(
                 11,
                 "c1",
                 "pocket_screen_control",
