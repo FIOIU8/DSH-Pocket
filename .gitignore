@@ -39,3 +39,9 @@ __pycache__/
 
 # Standalone mock model provider; maintained in its own repository.
 /mock-model-provider/
+
+# Project documentation is kept locally and excluded from Git.
+# The two README files are the only tracked Markdown documents.
+*.md
+!README.md
+!README.zh-CN.md
