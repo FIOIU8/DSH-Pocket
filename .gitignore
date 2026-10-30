@@ -36,3 +36,6 @@ __pycache__/
 
 # P0 spike scratch: adb scripts, screenshots and a local bridge token dump
 /.spike/
+
+# Standalone mock model provider; maintained in its own repository.
+/mock-model-provider/
