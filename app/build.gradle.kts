@@ -58,11 +58,16 @@ android {
             signingConfig = signingConfigs.getByName("debugLocal")
         }
         release {
+            val deviceTest = providers.gradleProperty("deviceTest").orNull == "true"
             optimization {
                 enable = true
-                packageScope = setOf("androidx.**", "kotlin.**", "kotlinx.**")
+                packageScope = setOf("com.fioiu8.dshpocket.**")
             }
-            if (providers.gradleProperty("releaseStoreFile").isPresent) {
+            if (deviceTest) {
+                // Install beside the signed production app without touching its data.
+                applicationIdSuffix = ".deviceTest"
+                signingConfig = signingConfigs.getByName("debugLocal")
+            } else if (providers.gradleProperty("releaseStoreFile").isPresent) {
                 signingConfig = signingConfigs.getByName("releaseCi")
             }
         }
