@@ -72,7 +72,9 @@ import com.fioiu8.dshpocket.core.AppLanguage
 import com.fioiu8.dshpocket.data.session.EngineSessionSource
 import com.fioiu8.dshpocket.data.session.SessionRepository
 import com.fioiu8.dshpocket.data.session.SharedPreferencesArchiveStore
+import com.fioiu8.dshpocket.data.workspace.WorkspaceStore
 import com.fioiu8.dshpocket.engine.EngineController
+import com.fioiu8.dshpocket.engine.Diagnostics
 import com.fioiu8.dshpocket.engine.EnginePaths
 import com.fioiu8.dshpocket.engine.EngineService
 import com.fioiu8.dshpocket.engine.EngineState
@@ -178,6 +180,7 @@ fun AppShell(
     val exitFadeDuration = motionDuration(140)
     val exitSlideDuration = motionDuration(160)
     val scope = rememberCoroutineScope()
+    val workspaceStore = remember { WorkspaceStore.get(context) }
 
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     // The exit-restore rule (user-named): the background still running means the task is
@@ -617,11 +620,33 @@ fun AppShell(
                             controller.stop(byUser = true)
                             EngineService.stop(context)
                         },
-                        onScreenControlChanged = {
+                         onScreenControlChanged = {
                             // Rewrites AGENTS.md's managed screen-control block so the
                             // agent reads the new state on its next turn, no respawn.
                             controller.refreshBriefing(capabilities)
                         },
+                         workspaceStore = workspaceStore,
+                         onWorkspaceChanged = {
+                             // The engine reads its cwd patch at boot. Restarting here keeps
+                             // existing sessions intact while making the next session use the
+                             // selected workspace path.
+                             capabilities = readCapabilities(context)
+                             webLoaded = false
+                             EngineService.start(context)
+                             controller.restart()
+                         },
+                         onExportDiagnostics = {
+                             val report = Diagnostics.collect(context, state, log).toJson().toString(2)
+                             context.startActivity(
+                                 android.content.Intent.createChooser(
+                                     android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                                         type = "application/json"
+                                         putExtra(android.content.Intent.EXTRA_TEXT, report)
+                                     },
+                                     context.getString(com.fioiu8.dshpocket.R.string.settings_export_diagnostics),
+                                 ),
+                             )
+                         },
                             language = language,
                             onLanguageChange = onLanguageChange,
                     )

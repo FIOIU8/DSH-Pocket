@@ -1,6 +1,9 @@
 package com.fioiu8.dshpocket.capability
 
 import android.content.Context
+import android.content.pm.PackageManager
+import android.os.Build
+import rikka.shizuku.Shizuku
 
 /**
  * Which companion a backend drives.
@@ -59,6 +62,16 @@ interface ExecutionBackend {
      * fact rather than a guess.
      */
     fun probe(device: DeviceQuery): CompanionStatus
+
+    /** Optional process bridge. Backends that cannot execute remain fail-closed. */
+    fun execute(command: List<String>, workingDirectory: String, environment: Map<String, String>): ProcessResult =
+        ProcessResult.Unavailable("Execution bridge is not connected")
+}
+
+sealed interface ProcessResult {
+    data class Started(val process: Process) : ProcessResult
+    data class Failed(val message: String) : ProcessResult
+    data class Unavailable(val reason: String) : ProcessResult
 }
 
 /**
@@ -80,6 +93,52 @@ class PackagePresenceBackend(
         } else {
             CompanionStatus.NOT_INSTALLED
         }
+}
+
+/** Shizuku-backed process execution. A successful process start upgrades the state to bridge-connected. */
+class ShizukuExecutionBackend : ExecutionBackend {
+    override val kind: ExecutionBackendKind = ExecutionBackendKind.SHIZUKU
+
+    @Volatile private var connected = false
+
+    override fun probe(device: DeviceQuery): CompanionStatus {
+        if (!device.isPackageInstalled(Capabilities.SHIZUKU_PACKAGE)) return CompanionStatus.NOT_INSTALLED
+        if (!runCatching { Shizuku.pingBinder() }.getOrDefault(false)) return CompanionStatus.INSTALLED
+        val permission = runCatching { Shizuku.checkSelfPermission() }.getOrDefault(PackageManager.PERMISSION_DENIED)
+        if (permission != PackageManager.PERMISSION_GRANTED) return CompanionStatus.AUTHORIZED
+        return if (connected) CompanionStatus.BRIDGE_CONNECTED else CompanionStatus.RUNNING
+    }
+
+    override fun execute(command: List<String>, workingDirectory: String, environment: Map<String, String>): ProcessResult {
+        if (command.isEmpty()) return ProcessResult.Failed("Command is empty")
+        return try {
+            if (!Shizuku.pingBinder()) return ProcessResult.Unavailable("Shizuku service is not running")
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && Shizuku.checkSelfPermission() != PackageManager.PERMISSION_GRANTED) {
+                return ProcessResult.Unavailable("Shizuku permission is not granted")
+            }
+            // Shizuku 13 keeps the low-level process factory private. The public UserService
+            // API is asynchronous and needs an app-specific Binder contract, so this narrow
+            // bridge uses the same method reflectively while preserving fail-closed behavior
+            // when the installed API changes or blocks access.
+            val method = Shizuku::class.java.getDeclaredMethod(
+                "newProcess",
+                Array<String>::class.java,
+                Array<String>::class.java,
+                String::class.java,
+            ).apply { isAccessible = true }
+            val process = method.invoke(
+                null,
+                command.toTypedArray(),
+                environment.map { "${it.key}=${it.value}" }.toTypedArray(),
+                workingDirectory,
+            ) as? Process ?: return ProcessResult.Failed("Shizuku did not return a process")
+            connected = true
+            ProcessResult.Started(process)
+        } catch (failure: Throwable) {
+            connected = false
+            ProcessResult.Failed(failure.message ?: failure.javaClass.simpleName)
+        }
+    }
 }
 
 /**
@@ -108,7 +167,7 @@ class CompanionBackends(backends: List<ExecutionBackend>) {
         val default: CompanionBackends = CompanionBackends(
             listOf(
                 PackagePresenceBackend(ExecutionBackendKind.TERMUX, Capabilities.TERMUX_PACKAGE),
-                PackagePresenceBackend(ExecutionBackendKind.SHIZUKU, Capabilities.SHIZUKU_PACKAGE),
+                ShizukuExecutionBackend(),
             ),
         )
     }

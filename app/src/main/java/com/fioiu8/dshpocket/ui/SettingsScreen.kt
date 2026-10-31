@@ -76,6 +76,8 @@ import com.fioiu8.dshpocket.core.AppLanguage
 import com.fioiu8.dshpocket.capability.CapabilityState
 import com.fioiu8.dshpocket.capability.CompanionStatus
 import com.fioiu8.dshpocket.capability.ProcessExecutionCapability
+import com.fioiu8.dshpocket.data.workspace.Workspace
+import com.fioiu8.dshpocket.data.workspace.WorkspaceStore
 import com.fioiu8.dshpocket.engine.EnginePaths
 import com.fioiu8.dshpocket.engine.EngineState
 import com.fioiu8.dshpocket.engine.RuntimeInstaller
@@ -180,6 +182,9 @@ fun SettingsDetailScreen(
     onRestart: () -> Unit,
     onStop: () -> Unit,
     onScreenControlChanged: () -> Unit,
+    workspaceStore: WorkspaceStore,
+    onWorkspaceChanged: () -> Unit,
+    onExportDiagnostics: () -> Unit,
     language: AppLanguage,
     onLanguageChange: (AppLanguage) -> Unit,
 ) {
@@ -261,12 +266,16 @@ fun SettingsDetailScreen(
                             { KeyValueRow(stringResource(com.fioiu8.dshpocket.R.string.settings_path), EnginePaths.root(context).absolutePath) },
                         ),
                     )
-                    SectionHeader(stringResource(com.fioiu8.dshpocket.R.string.settings_workspace))
-                    GroupedList(
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = DshSpacing.page),
-                        items = listOf { KeyValueRow(stringResource(com.fioiu8.dshpocket.R.string.settings_current), workspacePath.ifBlank { stringResource(com.fioiu8.dshpocket.R.string.loading) }) },
+                    WorkspaceSection(
+                        store = workspaceStore,
+                        currentPath = workspacePath,
+                        onWorkspaceChanged = onWorkspaceChanged,
                     )
                     HelperText(stringResource(com.fioiu8.dshpocket.R.string.settings_shared_workspace_hint, EnginePaths.SHARED_WORKSPACE))
+                    OutlinedButton(
+                        onClick = onExportDiagnostics,
+                        modifier = Modifier.padding(horizontal = DshSpacing.page),
+                    ) { Text(stringResource(com.fioiu8.dshpocket.R.string.settings_export_diagnostics)) }
                     SectionHeader(stringResource(com.fioiu8.dshpocket.R.string.settings_backup_section))
                     BackupSection(state)
                 }
@@ -418,6 +427,117 @@ fun SettingsDetailScreen(
 }
 
 @Composable
+private fun WorkspaceSection(
+    store: WorkspaceStore,
+    currentPath: String,
+    onWorkspaceChanged: () -> Unit,
+) {
+    var rows by remember { mutableStateOf(store.list()) }
+    var selectedId by remember { mutableStateOf(store.active().id) }
+    var dialog by remember { mutableStateOf<WorkspaceDialog?>(null) }
+    var error by remember { mutableStateOf<String?>(null) }
+
+    fun reload() {
+        rows = store.list()
+        selectedId = store.active().id
+    }
+
+    SectionHeader(stringResource(com.fioiu8.dshpocket.R.string.settings_workspace))
+    GroupedList(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = DshSpacing.page),
+        items = buildList {
+            add {
+                KeyValueRow(
+                    stringResource(com.fioiu8.dshpocket.R.string.settings_current),
+                    store.active().path.ifBlank { currentPath.ifBlank { stringResource(com.fioiu8.dshpocket.R.string.loading) } },
+                )
+            }
+            rows.forEach { workspace ->
+                add {
+                    ListItem(
+                        headlineContent = { Text(workspace.name, fontWeight = if (workspace.id == selectedId) FontWeight.Bold else FontWeight.Normal) },
+                        supportingContent = { Text(workspace.path) },
+                        leadingContent = { RadioButton(selected = workspace.id == selectedId, onClick = null) },
+                        trailingContent = {
+                            Row {
+                                TextButton(onClick = { dialog = WorkspaceDialog.Rename(workspace) }) { Text(stringResource(com.fioiu8.dshpocket.R.string.rename)) }
+                                TextButton(
+                                    enabled = workspace.id != selectedId,
+                                    onClick = {
+                                        runCatching { store.deleteIfEmpty(workspace.id) }
+                                            .onSuccess { reload() }
+                                            .onFailure { error = it.message }
+                                    },
+                                ) { Text(stringResource(com.fioiu8.dshpocket.R.string.delete)) }
+                            }
+                        },
+                        modifier = Modifier.clickable {
+                            runCatching { store.select(workspace.id) }
+                                .onSuccess { reload(); onWorkspaceChanged() }
+                                .onFailure { error = it.message }
+                        },
+                    )
+                }
+            }
+        },
+    )
+    TextButton(
+        onClick = { dialog = WorkspaceDialog.Create },
+        modifier = Modifier.padding(horizontal = DshSpacing.page),
+    ) { Text(stringResource(com.fioiu8.dshpocket.R.string.workspace_add)) }
+    HelperText(stringResource(com.fioiu8.dshpocket.R.string.workspace_hint))
+    error?.let { message ->
+        HelperText(message, color = MaterialTheme.colorScheme.error)
+    }
+
+    when (val activeDialog = dialog) {
+        WorkspaceDialog.Create -> WorkspaceNameDialog(
+            title = stringResource(com.fioiu8.dshpocket.R.string.workspace_add),
+            initial = "",
+            onDismiss = { dialog = null },
+            onConfirm = { name ->
+                runCatching { store.createPrivate(name) }
+                    .onSuccess { reload(); dialog = null; onWorkspaceChanged() }
+                    .onFailure { error = it.message }
+            },
+        )
+        is WorkspaceDialog.Rename -> WorkspaceNameDialog(
+            title = stringResource(com.fioiu8.dshpocket.R.string.workspace_rename),
+            initial = activeDialog.workspace.name,
+            onDismiss = { dialog = null },
+            onConfirm = { name ->
+                runCatching { store.rename(activeDialog.workspace.id, name) }
+                    .onSuccess { reload(); dialog = null }
+                    .onFailure { error = it.message }
+            },
+        )
+        null -> Unit
+    }
+}
+
+private sealed interface WorkspaceDialog {
+    data object Create : WorkspaceDialog
+    data class Rename(val workspace: Workspace) : WorkspaceDialog
+}
+
+@Composable
+private fun WorkspaceNameDialog(
+    title: String,
+    initial: String,
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit,
+) {
+    var value by remember(initial) { mutableStateOf(initial) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = { OutlinedTextField(value = value, onValueChange = { value = it }, singleLine = true) },
+        confirmButton = { TextButton(enabled = value.trim().isNotEmpty(), onClick = { onConfirm(value) }) { Text(stringResource(com.fioiu8.dshpocket.R.string.save)) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(com.fioiu8.dshpocket.R.string.cancel)) } },
+    )
+}
+
+@Composable
 private fun languageLabel(language: AppLanguage): String = when (language) {
     AppLanguage.SYSTEM -> stringResource(com.fioiu8.dshpocket.R.string.language_system)
     AppLanguage.ZH_CN -> stringResource(com.fioiu8.dshpocket.R.string.language_zh_cn)
@@ -444,11 +564,11 @@ private fun ChatPreferenceRow(
 }
 
 @Composable
-private fun HelperText(text: String) {
+private fun HelperText(text: String, color: androidx.compose.ui.graphics.Color = MaterialTheme.colorScheme.onSurfaceVariant) {
     Text(
         text = text,
         style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        color = color,
         modifier = Modifier.padding(horizontal = DshSpacing.page, vertical = DshSpacing.compact),
     )
 }

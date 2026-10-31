@@ -17,7 +17,7 @@
     <string name="open">Open</string>
     <string name="save">Save</string>
     <string name="saving">Saving...</string>
-    <string name="delete">Delete</string>
+    <string name="delete">Delete</string><string name="rename">Rename</string>
     <string name="set">Set</string>
     <string name="change">Change</string>
     <string name="remove">Remove</string>
@@ -354,7 +354,7 @@
     <string name="native_tool_screen_permission">Computer Use — request permission %1$s</string>
     <string name="native_tool_todo">Update todo list</string>
     <string name="native_tool_generic">Call %1$s</string>
-    <string name="settings_bundled_abi">Bundled ABI</string><string name="settings_device_abi">Device ABI</string><string name="settings_node">Node</string><string name="settings_dsh">DSH</string><string name="settings_storage">Storage</string><string name="settings_path">Path</string><string name="settings_current">Current</string>
+    <string name="settings_bundled_abi">Bundled ABI</string><string name="settings_device_abi">Device ABI</string><string name="settings_node">Node</string><string name="settings_dsh">DSH</string><string name="settings_storage">Storage</string><string name="settings_path">Path</string><string name="settings_current">Current</string><string name="workspace_add">Add workspace</string><string name="workspace_rename">Rename workspace</string><string name="workspace_hint">Only real writable folders are supported. Changing the workspace takes effect after the engine restarts.</string><string name="settings_export_diagnostics">Export redacted diagnostics</string>
 
     <string name="screen_accessibility_label">DSH Pocket screen control</string>
     <string name="screen_accessibility_description">Lets the DSH agent read the screen and perform taps, swipes and text input on your behalf. Every operation is announced with an on-screen border and reviewed before it runs; turn this off any time to disable the capability.</string>

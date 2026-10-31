@@ -14,6 +14,7 @@ coroutines = "1.11.0"
 kotlin = "2.2.10"
 composeBom = "2026.02.01"
 termuxTerminal = "v0.118.0"
+shizuku = "13.1.5"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -42,6 +43,8 @@ androidx-compose-material-icons-core = { group = "androidx.compose.material", na
 androidx-compose-material-icons-extended = { group = "androidx.compose.material", name = "material-icons-extended" }
 termux-terminal-emulator = { group = "com.github.termux.termux-app", name = "terminal-emulator", version.ref = "termuxTerminal" }
 termux-terminal-view = { group = "com.github.termux.termux-app", name = "terminal-view", version.ref = "termuxTerminal" }
+shizuku-api = { group = "dev.rikka.shizuku", name = "api", version.ref = "shizuku" }
+shizuku-provider = { group = "dev.rikka.shizuku", name = "provider", version.ref = "shizuku" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

@@ -3,6 +3,7 @@ package com.fioiu8.dshpocket.engine
 import android.content.Context
 import android.os.Build
 import android.os.Environment
+import com.fioiu8.dshpocket.data.workspace.WorkspaceStore
 import java.io.File
 import java.util.concurrent.TimeUnit
 
@@ -51,7 +52,16 @@ object EnginePaths {
      * permission: without the grant the app cannot write there, and the engine cwd, the
      * home patch and the agent briefing would all point at a dead directory.
      */
-    fun workspace(context: Context): File {
+    /**
+     * Returns the active app-selected workspace. The fallback keeps first boot and old
+     * installations working before the workspace preferences have been migrated.
+     */
+    fun workspace(context: Context): File = runCatching {
+        WorkspaceStore.get(context).activePath()
+    }.getOrElse { defaultWorkspace(context) }
+
+    /** Legacy default selection used only by the workspace migration. */
+    fun defaultWorkspace(context: Context): File {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !Environment.isExternalStorageManager()) {
             return privateWorkspace(context)
         }

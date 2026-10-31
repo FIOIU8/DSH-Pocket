@@ -105,6 +105,8 @@ dependencies {
     // 真 PTY 终端：Termux 的终端模拟与视图（Apache-2.0，JitPack）。
     implementation(libs.termux.terminal.emulator)
     implementation(libs.termux.terminal.view)
+    implementation(libs.shizuku.api)
+    implementation(libs.shizuku.provider)
     implementation(libs.commonmark)
     implementation(libs.commonmark.ext.gfm.tables)
     implementation(libs.commonmark.ext.gfm.strikethrough)
