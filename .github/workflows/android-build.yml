@@ -1,4 +1,4 @@
-name: Android arm64 build
+name: Android development build
 
 on:
   push:
@@ -9,6 +9,15 @@ on:
       - 'screenshots/**'
       - 'LICENSE'
   workflow_dispatch:
+    inputs:
+      runtime_arch:
+        description: Runtime ABI for this development build
+        required: true
+        default: aarch64
+        type: choice
+        options:
+          - aarch64
+          - x86_64
 
 permissions:
   contents: read
@@ -23,6 +32,8 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      RUNTIME_ARCH: ${{ inputs.runtime_arch || 'aarch64' }}
     steps:
       - name: Check out source
         uses: actions/checkout@v5
@@ -86,9 +97,9 @@ jobs:
             -dname "CN=Android Debug,O=Android,C=US" \
             -keyalg RSA -keysize 2048 -validity 10000
 
-      - name: Collect arm64 Android runtime
+      - name: Collect Android runtime
         run: |
-          python tools/collect_runtime.py fetch --arch aarch64 --work .runtime-work
+          python tools/collect_runtime.py fetch --arch "$RUNTIME_ARCH" --work .runtime-work
           npm init -y --prefix .runtime-work/bundle
           npm install --prefix .runtime-work/bundle \
             --omit=dev --ignore-scripts --no-audit --no-fund \
@@ -99,17 +110,18 @@ jobs:
             --omit=dev --ignore-scripts --no-audit --no-fund \
             @img/sharp-wasm32@0.35.5
           python tools/collect_runtime.py pack \
-            --arch aarch64 \
+            --arch "$RUNTIME_ARCH" \
             --work .runtime-work \
-            --out .runtime-work/runtime-aarch64.zip
-          cp .runtime-work/runtime-aarch64.zip app/src/main/assets/runtime.zip
+            --out ".runtime-work/runtime-$RUNTIME_ARCH.zip"
+          cp ".runtime-work/runtime-$RUNTIME_ARCH.zip" app/src/main/assets/runtime.zip
+          python tools/check_release_artifacts.py --runtime app/src/main/assets/runtime.zip --arch "$RUNTIME_ARCH"
 
       - name: Run tests, lint, and build arm64 APK
         run: >-
           ./gradlew --no-daemon testDebugUnitTest lintDebug assembleDebug
           -PappVersionCode=${GITHUB_RUN_NUMBER}
           -PappVersionName=0.0.${GITHUB_RUN_NUMBER}-ci
-          -PruntimeArch=aarch64
+          -PruntimeArch=${RUNTIME_ARCH}
 
       # Kept even when the build step fails so failures come with test XML.
       - name: Upload unit test results
@@ -135,7 +147,7 @@ jobs:
       - name: Upload debug APK
         uses: actions/upload-artifact@v6
         with:
-          name: dsh-pocket-arm64-ci-${{ github.run_number }}
+          name: dsh-pocket-${{ env.RUNTIME_ARCH }}-ci-${{ github.run_number }}
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14

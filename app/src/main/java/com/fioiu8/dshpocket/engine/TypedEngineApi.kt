@@ -82,7 +82,7 @@ object TypedEngineApi {
                 .put("sessionId", sessionId)
                 .put("mode", "queue")
                 .put("content", JSONArray().put(JSONObject().put("type", "text").put("text", text)))
-                .put("clientTimeZone", java.util.TimeZone.getDefault().id),
+                .put("clientTimeZone", validClientTimeZone()),
         ),
     ) { value ->
         val objectValue = value as? JSONObject
@@ -129,4 +129,10 @@ object TypedEngineApi {
     }
 
     private fun failure(code: String, message: String): Result<Nothing> = Result.Err(code, message, message)
+
+    private fun validClientTimeZone(): String {
+        val id = java.util.TimeZone.getDefault().id
+        val valid = id == "UTC" || (id.matches(Regex("[A-Za-z_+-]+(/[A-Za-z0-9._+-]+)+")) && id in java.util.TimeZone.getAvailableIDs())
+        return if (valid) id else "UTC"
+    }
 }

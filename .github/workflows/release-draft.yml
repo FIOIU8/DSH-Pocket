@@ -86,6 +86,17 @@ jobs:
         with:
           packages: 'platform-tools platforms;android-37.0 build-tools;36.0.0'
 
+      - name: Verify release toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          java -version
+          java -version 2>&1 | grep -q 'version "25'
+          node --version | grep -q '^v22\.'
+          python --version | grep -q '3\.12'
+          sdkmanager --version
+          ./gradlew --version | grep -q 'Gradle 9'
+
       - name: Select official DSH release
         id: dsh
         env:
@@ -114,6 +125,9 @@ jobs:
           mkdir -p .keystore
           printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > .keystore/release.jks
           test -s .keystore/release.jks
+          keytool -list -keystore .keystore/release.jks \
+            -storepass "$ANDROID_KEYSTORE_PASSWORD" \
+            -alias "$ANDROID_KEY_ALIAS" >/dev/null
 
       - name: Collect arm64 Android runtime
         env:
@@ -135,6 +149,9 @@ jobs:
             --work .runtime-work \
             --out .runtime-work/runtime-aarch64.zip
           cp .runtime-work/runtime-aarch64.zip app/src/main/assets/runtime.zip
+          python tools/check_release_artifacts.py \
+            --runtime app/src/main/assets/runtime.zip \
+            --arch aarch64
 
       # AGP 9 changed android.onlyEnableUnitTestForTheTestedBuildType to
       # default to true: unit-test components are only created for the tested
@@ -154,6 +171,13 @@ jobs:
           -PappVersionCode=${GITHUB_RUN_NUMBER}
           -PappVersionName=${RELEASE_VERSION#v}
           -PruntimeArch=aarch64
+
+      - name: Check release artifact size and runtime metadata
+        run: |
+          python tools/check_release_artifacts.py \
+            --runtime app/src/main/assets/runtime.zip \
+            --apk app/build/outputs/apk/release/app-release.apk \
+            --arch aarch64
 
       # Kept even when the build step fails so failures come with test XML.
       - name: Upload unit test results
