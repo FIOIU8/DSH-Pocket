@@ -61,7 +61,7 @@ object Diagnostics {
             },
             engineBaseUrl = ready?.baseUrl,
             workspacePath = WorkspaceStore.get(context).activePath().absolutePath,
-            foregroundService = true,
+            foregroundService = EngineService.isActive(),
             recentLog = log.takeLast(80),
         )
     }

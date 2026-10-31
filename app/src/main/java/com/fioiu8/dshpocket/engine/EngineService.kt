@@ -62,6 +62,8 @@ class EngineService : Service() {
                 service.updateNotification(service.controller.state.value)
             }
         }
+
+        fun isActive(): Boolean = activeService != null
     }
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
