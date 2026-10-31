@@ -6,6 +6,7 @@ import com.fioiu8.dshpocket.data.session.SessionFilter
 import com.fioiu8.dshpocket.data.session.SessionLoadState
 import com.fioiu8.dshpocket.data.session.SessionQuery
 import com.fioiu8.dshpocket.data.session.SessionRepository
+import com.fioiu8.dshpocket.data.workspace.Workspace
 import com.fioiu8.dshpocket.data.session.SessionRow
 import com.fioiu8.dshpocket.data.session.SessionSource
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -446,5 +447,17 @@ class SessionRowTest {
         val withoutCwd = SessionRow("b", "t", 0L, false, null, null, 0, null)
         assertEquals("alpha", withCwd.cwd?.substringAfterLast('/'))
         assertNull(withoutCwd.cwd)
+    }
+
+    @Test
+    fun `workspace grouping uses registered names and classifies unknown paths`() {
+        val rows = listOf(
+            SessionRow("a", "One", 0L, false, null, null, 0, "/data/ws/alpha"),
+            SessionRow("b", "Two", 0L, false, null, null, 0, "/other/beta"),
+        )
+        val workspaces = listOf(Workspace("a", "Project Alpha", "/data/ws/alpha", 0, 0))
+        val groups = SessionQuery.byWorkspace(rows, workspaces, "Unclassified")
+        assertEquals(listOf("a"), groups["Project Alpha"]?.map { it.id })
+        assertEquals(listOf("b"), groups["Unclassified"]?.map { it.id })
     }
 }

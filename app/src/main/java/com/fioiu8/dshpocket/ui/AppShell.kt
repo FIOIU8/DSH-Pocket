@@ -565,6 +565,7 @@ fun AppShell(
             Destination.Sessions -> SessionsScreen(
                 state = state,
                 repository = sessionRepository,
+                workspaceStore = workspaceStore,
                 onMenu = openDrawer,
                 onOpenChat = { sessionId ->
                     pendingOpenSessionId = sessionId

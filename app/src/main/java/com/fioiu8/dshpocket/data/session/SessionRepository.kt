@@ -15,6 +15,8 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
+import com.fioiu8.dshpocket.data.workspace.Workspace
+import java.io.File
 
 /**
  * Everything the session screen needs from the engine, and nothing about how it is drawn.
@@ -252,6 +254,15 @@ object SessionQuery {
     /** Groups by the last path segment of `cwd`, falling back for rows that have none. */
     fun byWorkspace(rows: List<SessionRow>, fallback: String): Map<String, List<SessionRow>> =
         rows.groupBy { it.cwd?.substringAfterLast('/') ?: fallback }
+
+    /** Groups by the app's workspace names; paths outside the app registry stay unclassified. */
+    fun byWorkspace(rows: List<SessionRow>, workspaces: List<Workspace>, fallback: String): Map<String, List<SessionRow>> =
+        rows.groupBy { row ->
+            val cwd = row.cwd?.let { runCatching { File(it).canonicalPath }.getOrNull() }
+            workspaces.firstOrNull { workspace ->
+                cwd != null && runCatching { File(workspace.path).canonicalPath }.getOrNull() == cwd
+            }?.name ?: fallback
+        }
 }
 
 /** Reads `archivedSessionIds` out of a write response; a missing field keeps the current set. */

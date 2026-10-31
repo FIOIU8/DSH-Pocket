@@ -61,6 +61,7 @@ import com.fioiu8.dshpocket.data.session.SessionLoadState
 import com.fioiu8.dshpocket.data.session.SessionFilter
 import com.fioiu8.dshpocket.data.session.SessionQuery
 import com.fioiu8.dshpocket.data.session.SessionRepository
+import com.fioiu8.dshpocket.data.workspace.WorkspaceStore
 import com.fioiu8.dshpocket.data.session.SessionRow
 import com.fioiu8.dshpocket.ui.state.SessionViewModel
 import com.fioiu8.dshpocket.ui.state.SessionViewModelFactory
@@ -94,6 +95,7 @@ fun SessionsScreen(
     onMenu: () -> Unit,
     onOpenChat: (String) -> Unit,
     repository: SessionRepository,
+    workspaceStore: WorkspaceStore,
 ) {
     val sessionViewModel: SessionViewModel = viewModel(
         key = "sessions",
@@ -229,7 +231,7 @@ fun SessionsScreen(
                             }
                         } else {
                             LazyColumn(Modifier.fillMaxSize()) {
-                                SessionQuery.byWorkspace(filtered, defaultWorkspace)
+                                SessionQuery.byWorkspace(filtered, workspaceStore.list(), defaultWorkspace)
                                     .forEach { (workspace, items) ->
                                         item(key = "header-$workspace") {
                                             Text(
