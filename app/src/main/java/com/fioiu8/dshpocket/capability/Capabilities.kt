@@ -117,9 +117,8 @@ object Capabilities {
         backends.statusOf(AndroidDeviceQuery(context), ExecutionBackendKind.TERMUX)
 
     /**
-     * Shizuku supplies privilege, not a runtime: it can only raise the identity of the
-     * processes we already ship. Merely detecting the APK is all we can do without
-     * binding to its service, which is the next step (D11).
+     * Shizuku supplies privilege, not a runtime. The backend probes its service and
+     * authorization state; process execution remains unavailable until a bridge call succeeds.
      */
     fun shizuku(context: Context, backends: CompanionBackends = CompanionBackends.default): CompanionStatus =
         backends.statusOf(AndroidDeviceQuery(context), ExecutionBackendKind.SHIZUKU)

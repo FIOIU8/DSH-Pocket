@@ -45,9 +45,8 @@ class AndroidDeviceQuery(private val context: Context) : DeviceQuery {
 /**
  * A companion that can run processes for the agent (D11).
  *
- * The seam exists so the Termux and Shizuku bridges can arrive later without
- * changing anything above this line: [Capabilities.snapshot] asks the
- * backends what they see and never touches a package manager itself.
+ * The seam keeps companion state and process execution behind one small contract:
+ * [Capabilities.snapshot] asks the backends what they see and never touches a package manager itself.
  */
 interface ExecutionBackend {
     /** Which companion this backend drives. */
@@ -75,8 +74,7 @@ sealed interface ProcessResult {
 }
 
 /**
- * The backend the app ships today: it can see whether the companion's package
- * is installed, and nothing else.
+ * Fallback backend for companions that do not yet expose an execution bridge.
  *
  * Termux supplies a full Linux userland (and a second, unmodified path to
  * dsh). Shizuku supplies privilege, not a runtime: it can only raise the
